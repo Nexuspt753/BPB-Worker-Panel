@@ -203,6 +203,15 @@ export const clientLinks: Record<string, ClientLinkStrategy> = {
     // copy + open so the user pastes it in the app.
     'v2rayN': { fallback: 'copy' },
 
+    // iOS/macOS Xray client: no web-invokable import scheme; copy + open.
+    'Streisand': { fallback: 'copy' },
+    // iOS/Android raw-URL clients: copy + open so the user pastes the link.
+    'Shadowrocket': { fallback: 'copy' },
+    'PassWall': { fallback: 'copy' },
+    'Hiddify': { fallback: 'copy' },
+    // Desktop Xray-knocker (Warp Pro) client: copy + open.
+    'v2rayN-PRO': { fallback: 'copy' },
+
     // sing-box family: import a remote subscription profile in one tap,
     // registered on Android, iOS and desktop sing-box clients.
     'sing-box': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },

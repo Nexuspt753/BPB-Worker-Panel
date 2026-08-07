@@ -291,11 +291,29 @@ function detectOS() {
     return 'windows'; // safest default
 }
 
+// Resolve the link strategy for a displayed client name. The map is keyed by
+// the canonical app names, but the subscription rows show names like
+// `v2rayN(G)` — which on Android means the v2rayNG app, and on desktop the
+// v2rayN app. Map those display names onto the canonical strategy.
+function resolveClientLink(client, os) {
+    const map = globalThis.clientLinkMap;
+    if (!map) return undefined;
+
+    // `v2rayN(G)` — the panel's combined label for v2rayNG (Android) / v2rayN (desktop).
+    if (client === 'v2rayN(G)' || client === 'v2rayNG(G)') {
+        return map['v2rayNG'] && (os === 'android' || os === 'ios')
+            ? map['v2rayNG']
+            : map['v2rayN'] || map['v2rayNG'];
+    }
+
+    return map[client];
+}
+
 // Build the one-click link for a specific client app in a subscription on the
 // current device. `core` is the response core of this row; the app may
 // deep-link differently on different OSes.
 function buildClientLink(os, type, core, client, label) {
-    const strategy = globalThis.clientLinkMap?.[client];
+    const strategy = resolveClientLink(client, os);
     // Plain HTTP(S) subscription URL that the client can fetch directly.
     const subUrl = new URL(`./sub/${type}`, window.location.href);
     subUrl.searchParams.append('app', core);
