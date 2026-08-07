@@ -291,71 +291,99 @@ function detectOS() {
     return 'windows'; // safest default
 }
 
-// Resolve the link strategy for a displayed client name. The map is keyed by
-// the canonical app names, but the subscription rows show names like
-// `v2rayN(G)` — which on Android means the v2rayNG app, and on desktop the
-// v2rayN app. Map those display names onto the canonical strategy.
+// Human-readable OS names for the "this app isn't available here" message.
+const OS_LABELS = {
+    android: 'Android',
+    ios: 'iOS',
+    windows: 'Windows',
+    linux: 'Linux',
+    macos: 'macOS'
+};
+
+// Resolve the strategy for a displayed client name. The map is keyed by the
+// canonical app names, but a subscription row can show a combined label —
+// `v2rayN(G)` covers two separate apps: v2rayNG on Android and v2rayN on
+// desktop. Pick the one that exists on this device, so the row behaves as
+// that app would; if neither matches, fall back to the desktop entry so the
+// unavailable-here message still names a real app.
 function resolveClientLink(client, os) {
     const map = globalThis.clientLinkMap;
     if (!map) return undefined;
 
-    // `v2rayN(G)` — the panel's combined label for v2rayNG (Android) / v2rayN (desktop).
     if (client === 'v2rayN(G)' || client === 'v2rayNG(G)') {
-        return map['v2rayNG'] && (os === 'android' || os === 'ios')
-            ? map['v2rayNG']
-            : map['v2rayN'] || map['v2rayNG'];
+        const mobile = map['v2rayNG'];
+        const desktop = map['v2rayN'];
+        if (mobile && mobile.platforms?.includes(os)) return mobile;
+        return desktop || mobile;
     }
 
     return map[client];
 }
 
-// Build the one-click link for a specific client app in a subscription on the
-// current device. `core` is the response core of this row; the app may
-// deep-link differently on different OSes.
+// Build the one-click action for a client app on the current device.
+//
+// Returns one of:
+//   { action: 'scheme',      url }  — fire the app's URL scheme; it imports.
+//   { action: 'download',    url }  — download the config for the app to open.
+//   { action: 'copy',        url }  — app runs here but only accepts a paste.
+//   { action: 'unavailable', url, platforms } — app doesn't run on this OS.
 function buildClientLink(os, type, core, client, label) {
     const strategy = resolveClientLink(client, os);
+
     // Plain HTTP(S) subscription URL that the client can fetch directly.
     const subUrl = new URL(`./sub/${type}`, window.location.href);
     subUrl.searchParams.append('app', core);
     subUrl.hash = `💦 BPB ${label}`;
     const plainUrl = subUrl.href;
 
-    // A deep-link scheme for this OS? (raw subscriptions are plain URL lists
-    // and are never wrapped in a profile-import scheme.)
-    const prefix = strategy?.schemePrefixes?.[os] || strategy?.universalSchemePrefix;
-    if (prefix && type !== 'raw') {
-        return { action: 'open', url: `${prefix}${plainUrl}` };
+    // Unknown client, or one with no build for this device: there is no app
+    // here to hand the subscription to, so copying is the only honest action.
+    if (!strategy) return { action: 'copy', url: plainUrl };
+    if (!strategy.platforms?.includes(os)) {
+        return { action: 'unavailable', url: plainUrl, platforms: strategy.platforms || [] };
     }
 
-    // Fallback action for this OS (download) or any (copy+open).
-    const fallback = strategy?.fallbacks?.[os] || strategy?.fallback;
-    if (fallback === 'download') {
-        return { action: 'download', url: plainUrl };
+    // The app is installed-able here. Prefer its own import mechanism.
+    // `raw` serves a base64 URI list rather than a structured profile, so it
+    // may only be handed to importers that are known to sniff that format —
+    // otherwise the app would fetch it and fail to parse.
+    const template = strategy.schemes?.[os] || strategy.scheme;
+    if (template && (type !== 'raw' || strategy.uriList)) {
+        const url = template
+            .replace('{enc}', encodeURIComponent(plainUrl))
+            .replace('{b64}', btoa(plainUrl))
+            .replace('{url}', plainUrl);
+
+        return { action: 'scheme', url };
     }
 
-    // Default: consume the subscription URL directly, or copy+open to guide.
-    return { action: 'open', url: plainUrl, copy: true };
+    if (strategy.fileImport) return { action: 'download', url: plainUrl };
+
+    return { action: 'copy', url: plainUrl };
 }
 
 // One-click: add the current subscription to the given client app on this device.
 async function oneClickAdd(client, type, core, label) {
-    const { action, url, copy } = buildClientLink(currentOS, type, core, client, label);
+    const { action, url, platforms } = buildClientLink(currentOS, type, core, client, label);
 
     if (action === 'download') {
         dlUrl(url);
         notify('info', 'Add to ' + client, [
             'Downloading the config file.',
-            'Import it in your client with one tap.'
+            'Open it with ' + client + ' to import it.'
         ]);
         return;
     }
 
-    copyToClipboard(url);
+    if (action === 'scheme') {
+        // Put the plain subscription URL — not the scheme — on the clipboard,
+        // so that if the app is not installed the user still has something
+        // they can paste. Then fire the scheme to import in one tap.
+        const subUrl = new URL(`./sub/${type}`, window.location.href);
+        subUrl.searchParams.append('app', core);
+        subUrl.hash = `💦 BPB ${label}`;
+        copyToClipboard(subUrl.href);
 
-    const isDeepLink = url.startsWith('sing-box://') || url.startsWith('clash://') || url.startsWith('v2rayng://');
-
-    if (isDeepLink) {
-        // Fire the scheme so the installed app opens and imports in one tap.
         const a = document.createElement('a');
         a.href = url;
         a.style.display = 'none';
@@ -364,18 +392,32 @@ async function oneClickAdd(client, type, core, label) {
         a.remove();
 
         notify('info', 'Add to ' + client, [
-            'The ' + client + ' app should open and import the subscription.',
-            'The link is also on your clipboard — paste it in ' + client + ' if it did not open.'
+            client + ' should open and import the subscription.',
+            'If it did not, the link is on your clipboard — paste it in ' + client + '.'
         ]);
         return;
     }
 
-    // Plain subscription URL with a copy fallback (desktop clients without a
-    // web-invokable scheme): the URL is already on the clipboard. Opening the
-    // sub endpoint in a browser only downloads the config, so we deliberately
-    // do NOT open it — the user pastes it into their client.
+    copyToClipboard(url);
+
+    if (action === 'unavailable') {
+        // The app has no build for this device, so there is no scheme to fire
+        // and nothing useful to open — say so instead of failing silently.
+        const where = (platforms || []).map(os => OS_LABELS[os] || os).join(', ');
+        notify('info', 'Add to ' + client, [
+            'Subscription link copied to your clipboard.',
+            where
+                ? client + ' runs on ' + where + ' — open this link there.'
+                : client + ' is not available on this device.'
+        ]);
+        return;
+    }
+
+    // The app runs here but has no import scheme (v2rayN, for instance):
+    // opening the sub endpoint in a browser would only download the config,
+    // so we deliberately do not open it — the user pastes the link instead.
     notify('info', 'Add to ' + client, [
-        'The subscription link is copied to your clipboard.',
+        'Subscription link copied to your clipboard.',
         'Paste it into ' + client + ' to import the subscription.'
     ]);
 }

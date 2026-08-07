@@ -166,88 +166,163 @@ export const subscriptions: Subscription = {
 };
 
 /**
- * One-click deep-link strategy per client app, per device OS.
+ * One-click import strategy per client app, per device OS.
  *
  * Central source of truth shared by the panel and (in future) the Telegram bot.
- * A client can declare a per-OS deep-link scheme, a scheme valid on every OS,
- * and/or per-OS fallbacks for OSes where it has no web-invokable scheme.
+ * Two independent facts are recorded per client:
  *
- * - `schemePrefixes[os]` — URL scheme that app handles on that OS
- *   (e.g. `v2rayng://install-sub?url=`). The subscription URL is appended.
- * - `universalSchemePrefix` — a scheme the app handles on every OS.
- * - `fallbacks[os]` — fallback action when no scheme applies on that OS.
- * - `fallback` — default fallback for any OS without a scheme or override.
+ * 1. `platforms` — the OSes the app actually ships on. If the visitor's device
+ *    is not in this list the app cannot be installed here at all, so the panel
+ *    only copies the link (and says why) instead of firing a dead scheme.
+ * 2. How to import on the OSes it does run on:
+ *    - `schemes[os]` — a URL scheme that OS build registers with the system.
+ *      `{url}` is replaced with the plain subscription URL, `{enc}` with the
+ *      percent-encoded form, and `{b64}` with its base64. Firing it hands the
+ *      subscription to the app in one tap.
+ *    - `scheme` — shorthand for "same scheme on every listed platform".
+ *    - `fileImport` — the app has no scheme; instead download the config file
+ *      and let the user open it with the app (one tap on every platform).
+ *
+ * A client with a platform but no scheme and no fileImport falls back to copy,
+ * which is correct for apps that only accept a pasted URL (v2rayN, Streisand).
+ *
+ * `uriList` marks importers that sniff the subscription body and accept a
+ * plain base64 URI list — the format the `raw` rows serve. Schemes that
+ * demand a structured profile (Clash YAML, sing-box JSON) must not be fired
+ * for `raw`, because the app would fetch it and fail to parse.
+ *
+ * Every entry below was verified against the app's own source (Android
+ * manifests, Info.plist / tauri.conf.json / runtime protocol registration) or
+ * its store listing — see the matrix in the one-click design doc.
  */
 type ClientOSType = 'android' | 'ios' | 'windows' | 'linux' | 'macos';
-type ClientFallbackType = 'copy' | 'download';
 
 interface ClientLinkStrategy {
-    schemePrefixes?: Partial<Record<ClientOSType, string>>;
-    universalSchemePrefix?: string;
-    fallbacks?: Partial<Record<ClientOSType, ClientFallbackType>>;
-    fallback?: ClientFallbackType;
+    platforms: ClientOSType[];
+    schemes?: Partial<Record<ClientOSType, string>>;
+    scheme?: string;
+    fileImport?: boolean;
+    uriList?: boolean;
 }
 
+const ANDROID_ONLY: ClientOSType[] = ['android'];
+const DESKTOP: ClientOSType[] = ['windows', 'linux', 'macos'];
+const APPLE: ClientOSType[] = ['ios', 'macos'];
+const EVERY_OS: ClientOSType[] = ['android', 'ios', 'windows', 'linux', 'macos'];
+
 export const clientLinks: Record<string, ClientLinkStrategy> = {
-    // Xray-core Android clients: v2rayNG registers v2rayng:// and MahsaNG
-    // (a v2rayNG fork) handles the same scheme. On other OSes, copy + open.
+    // Xray-core Android client. AndroidManifest registers scheme `v2rayng`
+    // with host `install-sub`, so the subscription imports in one tap.
+    // Its importer base64-decodes the body and parses it line by line, so it
+    // handles the raw URI-list rows as well as the Xray profile rows.
     'v2rayNG': {
-        schemePrefixes: { android: 'v2rayng://install-sub?url=' },
-        fallback: 'copy'
+        platforms: ANDROID_ONLY,
+        scheme: 'v2rayng://install-sub?url={enc}',
+        uriList: true
     },
+    // A v2rayNG fork — same package-level intent filter, same scheme.
     'MahsaNG': {
-        schemePrefixes: { android: 'v2rayng://install-sub?url=' },
-        fallback: 'copy'
+        platforms: ANDROID_ONLY,
+        scheme: 'v2rayng://install-sub?url={enc}',
+        uriList: true
     },
-    // Desktop Xray client: no subscription-import URI scheme (verified);
-    // copy + open so the user pastes it in the app.
-    'v2rayN': { fallback: 'copy' },
+    // Desktop Xray GUI (Windows/Linux/macOS). Its `v2rayn://` constant is an
+    // internal export format only — the app never registers an OS protocol
+    // handler, so there is nothing to fire. Copy the URL for pasting.
+    'v2rayN': { platforms: DESKTOP },
+    // Desktop Xray-knocker (Warp Pro) build of the same app.
+    'v2rayN-PRO': { platforms: DESKTOP },
 
-    // iOS/macOS Xray client: no web-invokable import scheme; copy + open.
-    'Streisand': { fallback: 'copy' },
-    // iOS/Android raw-URL clients: copy + open so the user pastes the link.
-    'Shadowrocket': { fallback: 'copy' },
-    'PassWall': { fallback: 'copy' },
-    'Hiddify': { fallback: 'copy' },
-    // Desktop Xray-knocker (Warp Pro) client: copy + open.
-    'v2rayN-PRO': { fallback: 'copy' },
+    // iOS/iPadOS only (no Mac build on its App Store listing). Imports a
+    // remote subscription via `streisand://import/<url>`.
+    'Streisand': {
+        platforms: ['ios'],
+        scheme: 'streisand://import/{url}'
+    },
+    // iOS/iPadOS + Apple silicon Macs. `sub://` takes the base64 of the
+    // subscription URL itself, and its importer reads a base64 URI list.
+    'Shadowrocket': {
+        platforms: APPLE,
+        scheme: 'sub://{b64}',
+        uriList: true
+    },
+    // OpenWrt router package — configured from the router's web UI, not from
+    // a phone or desktop app, so there is never a scheme to fire.
+    'PassWall': { platforms: [] },
 
-    // sing-box family: import a remote subscription profile in one tap,
-    // registered on Android, iOS and desktop sing-box clients.
-    'sing-box': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
-    'husi': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
-    'NekoBox': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
-    'Karing': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
+    // Multi-platform sing-box GUI. Registers hiddify/v2ray/clash/sing-box
+    // schemes on Android and macOS, and writes the same handlers into the
+    // Windows registry at first run.
+    // Its LinkParser accepts any subscription body, URI list included.
+    'Hiddify': {
+        platforms: EVERY_OS,
+        scheme: 'hiddify://install-config?url={enc}',
+        uriList: true
+    },
 
-    // Clash-family: install the remote profile directly. CMFA registers it on
-    // Android; Clash Verge Rev / FlClash register it on desktop; FlClash also
-    // on iOS. App-specific gaps fall back to copy + open.
+    // sing-box official clients: SFA (Android), SFI (iOS), SFM (macOS) all
+    // register `sing-box://import-remote-profile`.
+    'sing-box': {
+        platforms: ['android', 'ios', 'macos'],
+        scheme: 'sing-box://import-remote-profile?url={url}'
+    },
+    // Android sing-box client; its manifest registers the same scheme, and
+    // its parseProxies() splits the fetched body into per-line proxy URIs.
+    'husi': {
+        platforms: ANDROID_ONLY,
+        scheme: 'sing-box://import-remote-profile?url={url}',
+        uriList: true
+    },
+    // Android sing-box client. Registers `clash://install-config` for
+    // subscription import (it does not claim the sing-box scheme). Shares
+    // the SagerNet importer, so a URI list is fine.
+    'NekoBox': {
+        platforms: ANDROID_ONLY,
+        scheme: 'clash://install-config?url={enc}',
+        uriList: true
+    },
+    // Flutter sing-box GUI. Registers only its own `karing` scheme, and its
+    // handler accepts both `install-config` and `import-remote-profile`.
+    // Advertises Clash/V2ray/sing-box/Sub subscription support.
+    'Karing': {
+        platforms: ['android', 'ios', 'windows', 'linux', 'macos'],
+        scheme: 'karing://install-config?url={enc}',
+        uriList: true
+    },
+
+    // Clash Meta for Android — manifest registers clash/clashmeta with host
+    // `install-config`.
     'Clash Meta': {
-        schemePrefixes: { android: 'clash://install-config?url=' },
-        fallback: 'copy'
+        platforms: ANDROID_ONLY,
+        scheme: 'clash://install-config?url={enc}'
     },
+    // Tauri desktop app; tauri.conf.json declares desktop schemes
+    // ["clash", "clash-verge"] and its scheme.rs accepts a `url=` param.
     'Clash Verge': {
-        schemePrefixes: { windows: 'clash://install-config?url=', linux: 'clash://install-config?url=', macos: 'clash://install-config?url=' },
-        fallback: 'copy'
+        platforms: DESKTOP,
+        scheme: 'clash://install-config?url={enc}'
     },
     'Clash verge rev': {
-        schemePrefixes: { windows: 'clash://install-config?url=', linux: 'clash://install-config?url=', macos: 'clash://install-config?url=' },
-        fallback: 'copy'
+        platforms: DESKTOP,
+        scheme: 'clash://install-config?url={enc}'
     },
+    // Flutter ClashMeta GUI on Android + desktop (no iOS build). Registers
+    // clash/clashmeta/flclash in its manifest and macOS Info.plist.
     'FlClash': {
-        universalSchemePrefix: 'clash://install-config?url=',
-        fallback: 'copy'
+        platforms: ['android', 'windows', 'linux', 'macos'],
+        scheme: 'clash://install-config?url={enc}'
     },
+    // iOS/iPadOS/tvOS/macOS Clash client; handles `clash://install-config`.
     'Stash': {
-        schemePrefixes: { ios: 'clash://install-config?url=', macos: 'clash://install-config?url=' },
-        fallback: 'copy'
+        platforms: APPLE,
+        scheme: 'clash://install-config?url={enc}'
     },
 
-    // WireGuard-family: no remote-subscription scheme on any OS; download the
-    // config file (one tap) and let the app import it locally.
-    'Wireguard': { fallback: 'download' },
-    'WG Tunnel': { fallback: 'download' },
-    'Amnezia': { fallback: 'download' },
+    // WireGuard-family: no remote-subscription scheme on any OS. Downloading
+    // the .conf and opening it with the app is the one-tap path here.
+    'Wireguard': { platforms: EVERY_OS, fileImport: true },
+    'WG Tunnel': { platforms: ANDROID_ONLY, fileImport: true },
+    'Amnezia': { platforms: EVERY_OS, fileImport: true },
 };
 
 export const clients: Client[] = [
