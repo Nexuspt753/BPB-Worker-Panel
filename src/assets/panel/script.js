@@ -278,9 +278,23 @@ function generateSubUrl(type, core, tag) {
     return url.href;
 }
 
-// Build the one-click link for a specific client app in a subscription.
-// `core` is the response core of this row; the app may deep-link differently.
-function buildClientLink(type, core, client, label) {
+// Detect the user's OS so we can build the right one-tap link for this device.
+let currentOS = detectOS();
+
+function detectOS() {
+    const ua = navigator.userAgent || '';
+    if (/android/i.test(ua)) return 'android';
+    if (/ipad|iphone|ipod|macintosh.*(ipad|iphone)/i.test(ua)) return 'ios';
+    if (/mac os x|macintosh/i.test(ua)) return 'macos';
+    if (/windows/i.test(ua)) return 'windows';
+    if (/linux|cros/i.test(ua)) return 'linux';
+    return 'windows'; // safest default
+}
+
+// Build the one-click link for a specific client app in a subscription on the
+// current device. `core` is the response core of this row; the app may
+// deep-link differently on different OSes.
+function buildClientLink(os, type, core, client, label) {
     const strategy = globalThis.clientLinkMap?.[client];
     // Plain HTTP(S) subscription URL that the client can fetch directly.
     const subUrl = new URL(`./sub/${type}`, window.location.href);
@@ -288,32 +302,26 @@ function buildClientLink(type, core, client, label) {
     subUrl.hash = `💦 BPB ${label}`;
     const plainUrl = subUrl.href;
 
-    // Clients with no dedicated scheme just consume the subscription URL
-    // directly (their client fetches/imports it in one tap).
-    if (!strategy || strategy.fallback === 'copy') {
-        return { action: 'open', url: plainUrl };
+    // A deep-link scheme for this OS? (raw subscriptions are plain URL lists
+    // and are never wrapped in a profile-import scheme.)
+    const prefix = strategy?.schemePrefixes?.[os] || strategy?.universalSchemePrefix;
+    if (prefix && type !== 'raw') {
+        return { action: 'open', url: `${prefix}${plainUrl}` };
     }
 
-    if (strategy.scheme === 'sing-box' && type !== 'raw') {
-        return { action: 'open', url: `sing-box://import-remote-profile?url=${plainUrl}` };
-    }
-
-    if (strategy.scheme === 'clash') {
-        return { action: 'open', url: `clash://install-config?url=${plainUrl}` };
-    }
-
-    if (strategy.fallback === 'download') {
+    // Fallback action for this OS (download) or any (copy+open).
+    const fallback = strategy?.fallbacks?.[os] || strategy?.fallback;
+    if (fallback === 'download') {
         return { action: 'download', url: plainUrl };
     }
 
-    // Scheme clients in a raw subscription (configs are plain URL lists) just
-    // open the plain URL rather than deep-linking.
-    return { action: 'open', url: plainUrl };
+    // Default: consume the subscription URL directly, or copy+open to guide.
+    return { action: 'open', url: plainUrl, copy: true };
 }
 
-// One-click: add the current subscription to the given client app.
+// One-click: add the current subscription to the given client app on this device.
 async function oneClickAdd(client, type, core, label) {
-    const { action, url } = buildClientLink(type, core, client, label);
+    const { action, url, copy } = buildClientLink(currentOS, type, core, client, label);
 
     if (action === 'download') {
         dlUrl(url);
@@ -326,8 +334,10 @@ async function oneClickAdd(client, type, core, label) {
 
     copyToClipboard(url);
 
-    // Deep link into the installed app (sing-box, Clash-family).
-    if (url.startsWith('sing-box://') || url.startsWith('clash://')) {
+    const isDeepLink = url.startsWith('sing-box://') || url.startsWith('clash://') || url.startsWith('v2rayng://');
+
+    if (isDeepLink) {
+        // Fire the scheme so the installed app opens and imports in one tap.
         const a = document.createElement('a');
         a.href = url;
         a.style.display = 'none';
@@ -337,17 +347,17 @@ async function oneClickAdd(client, type, core, label) {
 
         notify('info', 'Add to ' + client, [
             'The ' + client + ' app should open and import the subscription.',
-            'If it did not open, paste the copied link into your client.'
+            'The link is also on your clipboard — paste it in ' + client + ' if it did not open.'
         ]);
         return;
     }
 
-    // Plain subscription URL: open in a new tab so the client can fetch it,
-    // and keep it on the clipboard as a one-tap paste fallback.
+    // Plain subscription URL (or copy fallback): open it and keep it on the
+    // clipboard so the user can paste it into their client in one tap.
     window.open(url, '_blank', 'noopener');
     notify('info', 'Add to ' + client, [
-        'The subscription link opened in a new tab.',
-        'The link was also copied to your clipboard — paste it in ' + client + ' to import.'
+        'The subscription link opened',
+        'It is copied to your clipboard — paste it in ' + client + ' to import.'
     ]);
 }
 

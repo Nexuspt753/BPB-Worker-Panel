@@ -166,32 +166,76 @@ export const subscriptions: Subscription = {
 };
 
 /**
- * One-click deep-link strategy per client app.
+ * One-click deep-link strategy per client app, per device OS.
  *
  * Central source of truth shared by the panel and (in future) the Telegram bot.
- * `strategy.scheme` deep-links into a client that can auto-import a remote
- * subscription. `strategy.fallback` is used for clients with no auto-import
- * scheme (they import a local config file instead). A client with no entry
- * simply opens the plain subscription URL.
+ * A client can declare a per-OS deep-link scheme, a scheme valid on every OS,
+ * and/or per-OS fallbacks for OSes where it has no web-invokable scheme.
+ *
+ * - `schemePrefixes[os]` — URL scheme that app handles on that OS
+ *   (e.g. `v2rayng://install-sub?url=`). The subscription URL is appended.
+ * - `universalSchemePrefix` — a scheme the app handles on every OS.
+ * - `fallbacks[os]` — fallback action when no scheme applies on that OS.
+ * - `fallback` — default fallback for any OS without a scheme or override.
  */
+type ClientOSType = 'android' | 'ios' | 'windows' | 'linux' | 'macos';
+type ClientFallbackType = 'copy' | 'download';
+
 interface ClientLinkStrategy {
-    scheme?: 'sing-box' | 'clash';
-    fallback?: 'copy' | 'download';
+    schemePrefixes?: Partial<Record<ClientOSType, string>>;
+    universalSchemePrefix?: string;
+    fallbacks?: Partial<Record<ClientOSType, ClientFallbackType>>;
+    fallback?: ClientFallbackType;
 }
 
 export const clientLinks: Record<string, ClientLinkStrategy> = {
-    // sing-box family: import a remote subscription profile in one tap.
-    'sing-box': { scheme: 'sing-box' },
-    'husi': { scheme: 'sing-box' },
-    'NekoBox': { scheme: 'sing-box' },
-    'Karing': { scheme: 'sing-box' },
-    // Clash-family: install the remote profile directly.
-    'Clash Meta': { scheme: 'clash' },
-    'Clash Verge': { scheme: 'clash' },
-    'Clash verge rev': { scheme: 'clash' },
-    'FlClash': { scheme: 'clash' },
-    'Stash': { scheme: 'clash' },
-    // WireGuard-family: no remote-subscription scheme; download the config file.
+    // Xray-core Android clients: v2rayNG registers v2rayng:// and MahsaNG
+    // (a v2rayNG fork) handles the same scheme. On other OSes, copy + open.
+    'v2rayNG': {
+        schemePrefixes: { android: 'v2rayng://install-sub?url=' },
+        fallback: 'copy'
+    },
+    'MahsaNG': {
+        schemePrefixes: { android: 'v2rayng://install-sub?url=' },
+        fallback: 'copy'
+    },
+    // Desktop Xray client: no subscription-import URI scheme (verified);
+    // copy + open so the user pastes it in the app.
+    'v2rayN': { fallback: 'copy' },
+
+    // sing-box family: import a remote subscription profile in one tap,
+    // registered on Android, iOS and desktop sing-box clients.
+    'sing-box': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
+    'husi': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
+    'NekoBox': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
+    'Karing': { universalSchemePrefix: 'sing-box://import-remote-profile?url=' },
+
+    // Clash-family: install the remote profile directly. CMFA registers it on
+    // Android; Clash Verge Rev / FlClash register it on desktop; FlClash also
+    // on iOS. App-specific gaps fall back to copy + open.
+    'Clash Meta': {
+        schemePrefixes: { android: 'clash://install-config?url=' },
+        fallback: 'copy'
+    },
+    'Clash Verge': {
+        schemePrefixes: { windows: 'clash://install-config?url=', linux: 'clash://install-config?url=', macos: 'clash://install-config?url=' },
+        fallback: 'copy'
+    },
+    'Clash verge rev': {
+        schemePrefixes: { windows: 'clash://install-config?url=', linux: 'clash://install-config?url=', macos: 'clash://install-config?url=' },
+        fallback: 'copy'
+    },
+    'FlClash': {
+        universalSchemePrefix: 'clash://install-config?url=',
+        fallback: 'copy'
+    },
+    'Stash': {
+        schemePrefixes: { ios: 'clash://install-config?url=', macos: 'clash://install-config?url=' },
+        fallback: 'copy'
+    },
+
+    // WireGuard-family: no remote-subscription scheme on any OS; download the
+    // config file (one tap) and let the app import it locally.
     'Wireguard': { fallback: 'download' },
     'WG Tunnel': { fallback: 'download' },
     'Amnezia': { fallback: 'download' },
