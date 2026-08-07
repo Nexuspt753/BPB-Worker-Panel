@@ -82,7 +82,7 @@ async function buildConfig(
     return config;
 }
 
-export async function getClNormalConfig(): Promise<Response> {
+export async function getClNormalConfig(env: Env): Promise<Response> {
     const {
         chainProxy,
         ports,
@@ -118,7 +118,7 @@ export async function getClNormalConfig(): Promise<Response> {
                 for (const host of hosts) {
                     if ((port === upstreamPort) !== (host === upstreamServer)) continue;
 
-                    const tag = generateRemark(protocolIndex, port, host, protocol, domain, false, false);
+                    const tag = await generateRemark(env, protocolIndex, port, host, protocol, domain, false, false);
                     const outbound = buildWebsocketOutbound(protocol, tag, host, port, domain);
 
                     if (outbound) {
@@ -130,7 +130,7 @@ export async function getClNormalConfig(): Promise<Response> {
                         }
 
                         if (isChain) {
-                            const chainTag = generateRemark(protocolIndex, port, host, protocol, domain, false, true);
+                            const chainTag = await generateRemark(env, protocolIndex, port, host, protocol, domain, false, true);
                             const chain = structuredClone(chainOutbound);
                             chain['name'] = chainTag;
                             chain['dialer-proxy'] = tag;

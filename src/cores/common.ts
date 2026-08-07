@@ -10,7 +10,7 @@ import {
     selectSniHost
 } from '@utils';
 
-export async function getURLConfigs() {
+export async function getURLConfigs(env: Env) {
     const {
         fingerprint,
         ports,
@@ -83,13 +83,13 @@ export async function getURLConfigs() {
                 if ((port === upstreamPort) !== (addr === upstreamServer)) continue;
 
                 if (protocols.includes(_VL_)) {
-                    const remark = generateRemark(proxyIndex, port, addr, _VL_, domain, false, false);
+                    const remark = await generateRemark(env, proxyIndex, port, addr, _VL_, domain, false, false);
                     const vlConfig = buildConfig(_VL_, addr, port, host, sni, remark);
                     VLConfs += `${vlConfig}\n`;
                 }
 
                 if (protocols.includes(_TR_)) {
-                    const remark = generateRemark(proxyIndex, port, addr, _TR_, domain, false, false);
+                    const remark = await generateRemark(env, proxyIndex, port, addr, _TR_, domain, false, false);
                     const trConfig = buildConfig(_TR_, addr, port, host, sni, remark);
                     TRConfs += `${trConfig}\n`;
                 }

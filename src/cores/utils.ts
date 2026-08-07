@@ -1,6 +1,8 @@
 import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
+import { resolveGeo } from './geo';
+import { renderName } from './naming';
 
 interface DnsResult {
     ipv4: string[];
@@ -68,7 +70,8 @@ export async function getConfigAddresses(domain: string, isFragment: boolean): P
     return addrs.concatIf(!isFragment, customCdnAddrs);
 }
 
-export function generateRemark(
+export async function generateRemark(
+    env: Env,
     index: number,
     port: number,
     address: string,
@@ -76,8 +79,15 @@ export function generateRemark(
     domain: string,
     isFragment: boolean,
     isChain: boolean
-): string {
-    const { cleanIPs, customCdnAddrs, customDomain, upstreamParams: { upstreamServer } } = getSettings();
+): Promise<string> {
+    const {
+        cleanIPs,
+        customCdnAddrs,
+        customDomain,
+        upstreamParams: { upstreamServer },
+        nameTemplate,
+        ipNames
+    } = getSettings();
 
     const chainSign = isChain ? '🔗 ' : '';
     const protoSign = protocol === _VL_ ? _VL_CAP_ : _TR_CAP_;
@@ -92,9 +102,30 @@ export function generateRemark(
         ? addressType = 'Clean IP'
         : addressType = isDomain(address) ? 'Domain' : isIPv4(address) ? 'IPv4' : isIPv6(address) ? 'IPv6' : '';
 
-    return address === upstreamServer
-        ? `💦 ${index}. ${chainSign}${protoSign} ${configType}- Upstream Proxy`
-        : `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
+    // Upstream proxy: keep existing hardcoded remark (no geo, no template).
+    if (address === upstreamServer) {
+        return `💦 ${index}. ${chainSign}${protoSign} ${configType}- Upstream Proxy`;
+    }
+
+    const fallback = `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
+
+    // Route through the naming engine unless the user left the template empty.
+    if (nameTemplate && nameTemplate.trim()) {
+        const rendered = renderName(nameTemplate, {
+            brand: _project_,
+            index,
+            address,
+            geo: await resolveGeo(env, address),
+            customName: ipNames[address] || undefined,
+            marker: configType
+        });
+        // If rendering yields nothing meaningful, keep today's output.
+        if (rendered.trim() && rendered.trim() !== '--') {
+            return rendered;
+        }
+    }
+
+    return fallback;
 }
 
 export function randomUpperCase(str: string): string {

@@ -83,7 +83,7 @@ async function buildConfig(
     return config;
 }
 
-export async function getSbCustomConfig(isFragment: boolean): Promise<Response> {
+export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<Response> {
     const {
         chainProxy,
         ports,
@@ -119,7 +119,7 @@ export async function getSbCustomConfig(isFragment: boolean): Promise<Response> 
                 for (const host of hosts) {
                     if ((port === upstreamPort) !== (host === upstreamServer)) continue;
 
-                    const tag = generateRemark(protocolIndex, port, host, protocol, domain, isFragment, false);
+                    const tag = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false);
                     const outbound = buildWebsocketOutbound(protocol, tag, host, port, domain, isFragment);
                     outbounds.push(outbound);
                     
@@ -130,7 +130,7 @@ export async function getSbCustomConfig(isFragment: boolean): Promise<Response> 
                     }
 
                     if (isChain) {
-                        const chainTag = generateRemark(protocolIndex, port, host, protocol, domain, isFragment, true);
+                        const chainTag = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true);
                         const chain = structuredClone(chainOutbound);
                         chain.tag = chainTag;
                         chain.detour = tag;

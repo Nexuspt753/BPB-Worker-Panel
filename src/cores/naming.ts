@@ -24,6 +24,7 @@ export function renderName(
         geo?: GeoInfo;
         customName?: string;
         marker?: string;
+        latency?: string;
     },
 ): string {
     if (typeof template !== 'string') return '';

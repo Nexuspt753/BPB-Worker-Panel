@@ -17,13 +17,13 @@ export async function handleSubscriptions(request: Request, env: Env): Promise<R
         case 'normal':
             switch (client) {
                 case 'xray':
-                    return getXrCustomConfigs(false);
+                    return getXrCustomConfigs(false, env);
 
                 case 'sing-box':
-                    return getSbCustomConfig(false);
+                    return getSbCustomConfig(false, env);
 
                 case 'clash':
-                    return getClNormalConfig();
+                    return getClNormalConfig(env);
 
                 default:
                     break;
@@ -33,7 +33,7 @@ export async function handleSubscriptions(request: Request, env: Env): Promise<R
             switch (client) {
                 case 'xray':
                 case 'sing-box':
-                    return getURLConfigs();
+                    return getURLConfigs(env);
 
                 default:
                     break;
@@ -42,10 +42,10 @@ export async function handleSubscriptions(request: Request, env: Env): Promise<R
         case 'fragment':
             switch (client) {
                 case 'xray':
-                    return getXrCustomConfigs(true);
+                    return getXrCustomConfigs(true, env);
 
                 case 'sing-box':
-                    return getSbCustomConfig(true);
+                    return getSbCustomConfig(true, env);
 
                 default:
                     break;

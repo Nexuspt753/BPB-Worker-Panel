@@ -262,7 +262,7 @@ async function addWorkerlessConfigs(configs: Config[]) {
     configs.push(cfDnsConfig, googleDnsConfig);
 }
 
-export async function getXrCustomConfigs(isFragment: boolean): Promise<Response> {
+export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise<Response> {
     const {
         chainProxy,
         ports,
@@ -302,12 +302,12 @@ export async function getXrCustomConfigs(isFragment: boolean): Promise<Response>
                     const proxy = modifyOutbound(outbound, `proxy-${index}`);
                     proxies.push(proxy);
 
-                    const remark = generateRemark(protocolIndex, port, host, protocol, domain, isFragment, false);
+                    const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false);
                     const config = await buildConfig(remark, [outbound], false, false, false, false, false, [host]);
                     configs.push(config);
 
                     if (chainOutbound) {
-                        const remark = generateRemark(protocolIndex, port, host, protocol, domain, isFragment, true);
+                        const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true);
                         const chainConfig = await buildConfig(remark, [chainOutbound, outbound], false, true, false, false, false, [host]);
                         configs.push(chainConfig);
 
