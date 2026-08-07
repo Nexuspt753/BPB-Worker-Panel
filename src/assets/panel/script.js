@@ -370,12 +370,13 @@ async function oneClickAdd(client, type, core, label) {
         return;
     }
 
-    // Plain subscription URL (or copy fallback): open it and keep it on the
-    // clipboard so the user can paste it into their client in one tap.
-    window.open(url, '_blank', 'noopener');
+    // Plain subscription URL with a copy fallback (desktop clients without a
+    // web-invokable scheme): the URL is already on the clipboard. Opening the
+    // sub endpoint in a browser only downloads the config, so we deliberately
+    // do NOT open it — the user pastes it into their client.
     notify('info', 'Add to ' + client, [
-        'The subscription link opened',
-        'It is copied to your clipboard — paste it in ' + client + ' to import.'
+        'The subscription link is copied to your clipboard.',
+        'Paste it into ' + client + ' to import the subscription.'
     ]);
 }
 
