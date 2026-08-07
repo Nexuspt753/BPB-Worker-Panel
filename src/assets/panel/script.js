@@ -19,7 +19,7 @@ getUsage();
 initPanel();
 fetchIPInfo();
 
-async function initPanel(settings, tgSettings, subscriptions, clients) {
+async function initPanel(settings, tgSettings, subscriptions, clients, clientLinks) {
     try {
         if (!settings) {
             const nocache = Date.now();
@@ -40,10 +40,11 @@ async function initPanel(settings, tgSettings, subscriptions, clients) {
             tgSettings = body.telegramSettings;
             subscriptions = body.subscriptions;
             clients = body.clients;
+            clientLinks = body.clientLinks;
             checkVersion(settings.panelVersion);
         }
 
-        renderPanel(settings, tgSettings, subscriptions, clients);
+        renderPanel(settings, tgSettings, subscriptions, clients, clientLinks);
     } catch (error) {
         console.error('Panel initiation error:', error);
     }
@@ -117,7 +118,8 @@ function isNewerVersion(latest, current) {
     return false;
 }
 
-function renderPanel(proxySettings, tgSettings, subscriptions, clients) {
+function renderPanel(proxySettings, tgSettings, subscriptions, clients, clientLinks) {
+    if (clientLinks) globalThis.clientLinkMap = clientLinks;
     const {
         securePath,
         ports,
@@ -274,6 +276,79 @@ function generateSubUrl(type, core, tag) {
     }
 
     return url.href;
+}
+
+// Build the one-click link for a specific client app in a subscription.
+// `core` is the response core of this row; the app may deep-link differently.
+function buildClientLink(type, core, client, label) {
+    const strategy = globalThis.clientLinkMap?.[client];
+    // Plain HTTP(S) subscription URL that the client can fetch directly.
+    const subUrl = new URL(`./sub/${type}`, window.location.href);
+    subUrl.searchParams.append('app', core);
+    subUrl.hash = `💦 BPB ${label}`;
+    const plainUrl = subUrl.href;
+
+    // Clients with no dedicated scheme just consume the subscription URL
+    // directly (their client fetches/imports it in one tap).
+    if (!strategy || strategy.fallback === 'copy') {
+        return { action: 'open', url: plainUrl };
+    }
+
+    if (strategy.scheme === 'sing-box' && type !== 'raw') {
+        return { action: 'open', url: `sing-box://import-remote-profile?url=${plainUrl}` };
+    }
+
+    if (strategy.scheme === 'clash') {
+        return { action: 'open', url: `clash://install-config?url=${plainUrl}` };
+    }
+
+    if (strategy.fallback === 'download') {
+        return { action: 'download', url: plainUrl };
+    }
+
+    // Scheme clients in a raw subscription (configs are plain URL lists) just
+    // open the plain URL rather than deep-linking.
+    return { action: 'open', url: plainUrl };
+}
+
+// One-click: add the current subscription to the given client app.
+async function oneClickAdd(client, type, core, label) {
+    const { action, url } = buildClientLink(type, core, client, label);
+
+    if (action === 'download') {
+        dlUrl(url);
+        notify('info', 'Add to ' + client, [
+            'Downloading the config file.',
+            'Import it in your client with one tap.'
+        ]);
+        return;
+    }
+
+    copyToClipboard(url);
+
+    // Deep link into the installed app (sing-box, Clash-family).
+    if (url.startsWith('sing-box://') || url.startsWith('clash://')) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        notify('info', 'Add to ' + client, [
+            'The ' + client + ' app should open and import the subscription.',
+            'If it did not open, paste the copied link into your client.'
+        ]);
+        return;
+    }
+
+    // Plain subscription URL: open in a new tab so the client can fetch it,
+    // and keep it on the clipboard as a one-tap paste fallback.
+    window.open(url, '_blank', 'noopener');
+    notify('info', 'Add to ' + client, [
+        'The subscription link opened in a new tab.',
+        'The link was also copied to your clipboard — paste it in ' + client + ' to import.'
+    ]);
 }
 
 async function generateQRCode(data) {
@@ -1144,7 +1219,13 @@ function renderSubscriptions(subscriptions) {
             const clientSection = elm('td', {}, clients.map(client => {
                 const icon = createIcon('verified');
                 const title = elm('span', { textContent: client });
-                const wrapper = elm('div', {}, [icon, title]);
+                const addBtn = elm('button', {
+                    title: `Add to ${client}`,
+                    className: 'client-add',
+                    onclick: () => oneClickAdd(client, type, core, label)
+                }, createIcon('add_circle'));
+                const wrapper = elm('div', {}, [icon, title, addBtn]);
+
                 return wrapper;
             }));
 

@@ -165,6 +165,38 @@ export const subscriptions: Subscription = {
     }
 };
 
+/**
+ * One-click deep-link strategy per client app.
+ *
+ * Central source of truth shared by the panel and (in future) the Telegram bot.
+ * `strategy.scheme` deep-links into a client that can auto-import a remote
+ * subscription. `strategy.fallback` is used for clients with no auto-import
+ * scheme (they import a local config file instead). A client with no entry
+ * simply opens the plain subscription URL.
+ */
+interface ClientLinkStrategy {
+    scheme?: 'sing-box' | 'clash';
+    fallback?: 'copy' | 'download';
+}
+
+export const clientLinks: Record<string, ClientLinkStrategy> = {
+    // sing-box family: import a remote subscription profile in one tap.
+    'sing-box': { scheme: 'sing-box' },
+    'husi': { scheme: 'sing-box' },
+    'NekoBox': { scheme: 'sing-box' },
+    'Karing': { scheme: 'sing-box' },
+    // Clash-family: install the remote profile directly.
+    'Clash Meta': { scheme: 'clash' },
+    'Clash Verge': { scheme: 'clash' },
+    'Clash verge rev': { scheme: 'clash' },
+    'FlClash': { scheme: 'clash' },
+    'Stash': { scheme: 'clash' },
+    // WireGuard-family: no remote-subscription scheme; download the config file.
+    'Wireguard': { fallback: 'download' },
+    'WG Tunnel': { fallback: 'download' },
+    'Amnezia': { fallback: 'download' },
+};
+
 export const clients: Client[] = [
     { name: `${_V2_}NG`, minVer: '2.2.3', source: 'Github', b64Url: 'aHR0cHM6Ly9naXRodWIuY29tLzJkdXN0L3YycmF5TkcvcmVsZWFzZXMvbGF0ZXN0' },
     { name: `${_V2_}N`, minVer: '7.22.5', source: 'Github', b64Url: 'aHR0cHM6Ly9naXRodWIuY29tLzJkdXN0L3YycmF5Ti9yZWxlYXNlcy9sYXRlc3Q=' },
