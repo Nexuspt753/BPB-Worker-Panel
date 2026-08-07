@@ -225,7 +225,7 @@ let kvSettings: KvSettings = {
     fragmentMaxSplitMax: 0,
     customSubs: [],
     customConfigs: [],
-    nameTemplate: '{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}',
+    nameTemplate: '{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}',
     ipNames: {},
     warpRemoteDNS: '1.1.1.1',
     warpEndpoints: ['engage.cloudflareclient.com:2408'],

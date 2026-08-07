@@ -76,6 +76,7 @@ function resolveToken(
         case 'F': return flag;
         case 'D': return ctx.address || '';
         case 'C': return country;
+        case 'MARKER': return ctx.marker || '';
         case 'INDEX': return ctx.index != null ? String(ctx.index) : '';
         case 'PORT': return ctx.port != null ? String(ctx.port) : '';
         default: return null; // unknown -> '--'
