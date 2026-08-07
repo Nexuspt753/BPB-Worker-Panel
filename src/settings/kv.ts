@@ -159,7 +159,9 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
             ['amneziaNoiseSizeMax'],
             ['customSubs'],
             ['remoteSettings'],
-            ['customConfigs']
+            ['customConfigs'],
+            ['nameTemplate'],
+            ['ipNames']
         ];
 
     try {

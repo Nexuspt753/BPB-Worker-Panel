@@ -73,6 +73,8 @@ export interface KvSettings {
     amneziaNoiseSizeMax: number;
     customSubs: string[];
     customConfigs: string[];
+    nameTemplate: string;             // e.g. "{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}"
+    ipNames: Record<string, string>;  // clean IP/address -> custom name
     remoteSettings: string;
     panelVersion: string;
 }
