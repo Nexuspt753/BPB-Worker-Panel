@@ -280,9 +280,12 @@ export const clientLinks: Record<string, ClientLinkStrategy> = {
     // too, so firing it opens whichever app owns it rather than NekoBox. Its
     // own `sn://subscription` is exclusive, and importSubscription() reads
     // `url` and `name` from it to create a real subscription group.
+    // Pass `name` explicitly: unlike the others it never reads the URL
+    // fragment for a title, and without the param it names the group
+    // "Subscription #<timestamp>".
     'NekoBox': {
         platforms: ANDROID_ONLY,
-        scheme: 'sn://subscription?url={enc}',
+        scheme: 'sn://subscription?url={enc}&name={name}',
         uriList: true
     },
     // Flutter sing-box GUI. Registers only its own `karing` scheme, and its

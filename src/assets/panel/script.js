@@ -349,10 +349,14 @@ function buildClientLink(os, type, core, client, label) {
     // otherwise the app would fetch it and fail to parse.
     const template = strategy.schemes?.[os] || strategy.scheme;
     if (template && (type !== 'raw' || strategy.uriList)) {
+        // Most clients title the subscription from the URL's `#fragment`.
+        // Those that instead read a `name=` query param get `{name}`, without
+        // which they fall back to a generated placeholder like a timestamp.
         const url = template
             .replace('{enc}', encodeURIComponent(plainUrl))
             .replace('{b64}', btoa(plainUrl))
-            .replace('{url}', plainUrl);
+            .replace('{url}', plainUrl)
+            .replace('{name}', encodeURIComponent(`💦 BPB ${label}`));
 
         return { action: 'scheme', url };
     }
