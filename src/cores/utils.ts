@@ -1,7 +1,7 @@
 import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
-import { resolveGeo } from './geo';
+import { resolveGeo, normalize } from './geo';
 import { renderName } from './naming';
 
 interface DnsResult {
@@ -116,7 +116,7 @@ export async function generateRemark(
             index,
             address,
             geo: await resolveGeo(env, address),
-            customName: ipNames[address] || undefined,
+            customName: ipNames[normalize(address)] || undefined,
             marker: configType
         });
         // If rendering yields nothing meaningful, keep today's output.

@@ -15,7 +15,7 @@ const GEO_URL = 'http://ip-api.com/json/';
 const KV_PREFIX = 'geo:';
 const CACHE_TTL = 60 * 60 * 24 * 30; // 30 days
 
-function normalize(address: string): string {
+export function normalize(address: string): string {
     // ip-api expects a bare address; strip the brackets wrapping IPv6 literals.
     return isIPv6(address) ? address.replace(/^\[|\]$/g, '') : address.trim();
 }
