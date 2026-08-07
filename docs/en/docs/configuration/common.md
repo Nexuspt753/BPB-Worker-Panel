@@ -58,3 +58,52 @@ This is your secure path for accessing panel or getting subscriptions, if you ch
 BPB Panel provides camouflage feature. By default, accessing the wrong addresses or invalid requests returns 404.
 
 You can change this behaviour by setting a desired well known domain here. Please note that some websites blocked or restricted workers, so you should set and test them.
+
+## Config Names
+
+By default each generated config is named from its address type and port. If you prefer more descriptive names, this section lets you build a custom **name template** that is auto-filled for every config from a geo lookup (country, city, region, ISP, provider and connection type) plus any custom names you define yourself.
+
+The default template is:
+
+```
+{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}
+```
+
+You can change the template to any combination of the placeholders below.
+
+!!! info
+    Any placeholder with no known value renders as `--`, so the template shape stays stable even when geo data is missing.
+
+### Available placeholders
+
+- `{MARKER}` — the config-type prefix (`F ` for fragment, `D ` for custom domain, `C ` for custom CDN); empty when none apply.
+- `{FLAG}` — country flag emoji.
+- `{COUNTRY}` — country name.
+- `{CITY}` — city name.
+- `{REGION}` — region / province name.
+- `{ISP}` — internet service provider.
+- `{ASN}` — AS number.
+- `{TYPE}` — connection type: `Hosting`, `Mobile` or `Residential`.
+- `{LATENCY}` — latency, when the panel supplies a measured value.
+- `{IP}` — the config address.
+- `{IPNAME}` — your custom name for the address, if you set one below.
+- `{B}` — the panel brand name.
+- `{F}` — same as flag (legacy).
+- `{D}` — the address/domain (legacy).
+- `{C}` — the country name (legacy).
+- `{index}` — the config index number.
+- `{port}` — the config port number.
+
+!!! tip
+The `{FLAG}` emoji is derived from the two-letter country code returned by the geo lookup. Non-geo placeholders such as `{index}` and `{port}` always resolve without needing a lookup.
+
+### Custom names per IP
+
+To give a specific IP a fixed name, add one pair per line in the format `IP = name`. For example:
+
+```
+1.2.3.4 = Home
+5.6.7.8 = Office
+```
+
+Any config whose address matches an entry uses that name in place of `{IPNAME}`. Addresses are matched as written (IPv6 brackets are stripped), so a config for that address picks up the mapped name automatically.
