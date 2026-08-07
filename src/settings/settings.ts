@@ -266,19 +266,23 @@ export const clientLinks: Record<string, ClientLinkStrategy> = {
         platforms: ['android', 'ios', 'macos'],
         scheme: 'sing-box://import-remote-profile?url={url}'
     },
-    // Android sing-box client; its manifest registers the same scheme, and
-    // its parseProxies() splits the fetched body into per-line proxy URIs.
+    // Android sing-box client. Prefer its exclusive `husi://subscription`
+    // over the shared sing-box scheme (SFA claims that one too); its
+    // isSubscriptionUri() accepts both, and parseProxies() splits the fetched
+    // body into per-line proxy URIs.
     'husi': {
         platforms: ANDROID_ONLY,
-        scheme: 'sing-box://import-remote-profile?url={url}',
+        scheme: 'husi://subscription?url={enc}',
         uriList: true
     },
-    // Android sing-box client. Registers `clash://install-config` for
-    // subscription import (it does not claim the sing-box scheme). Shares
-    // the SagerNet importer, so a URI list is fine.
+    // Android sing-box client. It also registers `clash://install-config`,
+    // but that scheme is contested — Clash Meta, Hiddify and FlClash claim it
+    // too, so firing it opens whichever app owns it rather than NekoBox. Its
+    // own `sn://subscription` is exclusive, and importSubscription() reads
+    // `url` and `name` from it to create a real subscription group.
     'NekoBox': {
         platforms: ANDROID_ONLY,
-        scheme: 'clash://install-config?url={enc}',
+        scheme: 'sn://subscription?url={enc}',
         uriList: true
     },
     // Flutter sing-box GUI. Registers only its own `karing` scheme, and its
@@ -291,31 +295,37 @@ export const clientLinks: Record<string, ClientLinkStrategy> = {
     },
 
     // Clash Meta for Android — manifest registers clash/clashmeta with host
-    // `install-config`.
+    // `install-config`. `clashmeta` is the narrower of the two.
     'Clash Meta': {
         platforms: ANDROID_ONLY,
-        scheme: 'clash://install-config?url={enc}'
+        scheme: 'clashmeta://install-config?url={enc}'
     },
     // Tauri desktop app; tauri.conf.json declares desktop schemes
     // ["clash", "clash-verge"] and its scheme.rs accepts a `url=` param.
+    // `clash-verge` is exclusive to it, so it wins over a co-installed
+    // Clash client that also registered the generic `clash` scheme.
     'Clash Verge': {
         platforms: DESKTOP,
-        scheme: 'clash://install-config?url={enc}'
+        scheme: 'clash-verge://install-config?url={enc}'
     },
     'Clash verge rev': {
         platforms: DESKTOP,
-        scheme: 'clash://install-config?url={enc}'
+        scheme: 'clash-verge://install-config?url={enc}'
     },
     // Flutter ClashMeta GUI on Android + desktop (no iOS build). Registers
-    // clash/clashmeta/flclash in its manifest and macOS Info.plist.
+    // clash/clashmeta/flclash in its manifest and macOS Info.plist; use the
+    // exclusive `flclash` alias so a co-installed Clash app cannot intercept
+    // it. Its LinkManager still requires the `install-config` host.
     'FlClash': {
         platforms: ['android', 'windows', 'linux', 'macos'],
-        scheme: 'clash://install-config?url={enc}'
+        scheme: 'flclash://install-config?url={enc}'
     },
-    // iOS/iPadOS/tvOS/macOS Clash client; handles `clash://install-config`.
+    // iOS/iPadOS/tvOS/macOS Clash client. Its docs list both
+    // `stash://install-config?url=` and the shared `clash://` form; use the
+    // exclusive one so a co-installed Clash client cannot intercept it.
     'Stash': {
         platforms: APPLE,
-        scheme: 'clash://install-config?url={enc}'
+        scheme: 'stash://install-config?url={enc}'
     },
 
     // WireGuard-family: no remote-subscription scheme on any OS. Downloading
