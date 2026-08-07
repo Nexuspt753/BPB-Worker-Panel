@@ -558,6 +558,44 @@
             <div class="accordion-item">
                 <details>
                     <summary>
+                        <h3>Config Names</h3>
+                    </summary>
+                    <div class="section">
+                        <div class="form-control">
+                            <label for="nameTemplate">Config Name Template</label>
+                            <div>
+                                <input type="text" id="nameTemplate" name="nameTemplate"
+                                    placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}">
+                            </div>
+                            <span class="hint">
+                                Placeholders: {MARKER} {FLAG} {COUNTRY} {CITY} {REGION} {ISP} {ASN} {TYPE}
+                                {LATENCY} {IP} {IPNAME}. Example presets:
+                                {FLAG}{COUNTRY}{CITY} - {IP} or {FLAG}{COUNTRY} {CITY} {LATENCY}ms.
+                            </span>
+                        </div>
+                        <div class="form-control">
+                            <label for="ipNames">Clean IP to Name</label>
+                            <div>
+                                <textarea id="ipNames" name="ipNames" class="kv-lines" rows="3" wrap="off"
+                                    placeholder="1.2.3.4 = My Server"></textarea>
+                            </div>
+                            <span class="hint">
+                                Assign a custom name to a specific IP / clean IP, one pair per line in the
+                                form: IP = Name. Leave the name empty to remove the entry.
+                            </span>
+                        </div>
+                    </div>
+                </details>
+                <a class="help-icon"
+                    href="https://bia-pain-bache.github.io/BPB-Worker-Panel/configuration/common/"
+                    target="_blank" title="Help">
+                    <span class="material-symbols-rounded">info</span>
+                </a>
+            </div>
+
+            <div class="accordion-item">
+                <details>
+                    <summary>
                         <h3>Warp General</h3>
                     </summary>
                     <div class="section">
