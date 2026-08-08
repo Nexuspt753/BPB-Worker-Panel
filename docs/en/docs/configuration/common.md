@@ -71,6 +71,8 @@ The default template is:
 
 You can change the template to any combination of the placeholders below.
 
+The template box shows an autocomplete dropdown as you type: press `{` to see every placeholder, keep typing to filter the list, and use the arrow keys with Enter/Tab to insert one. The dropdown only appears while the caret is inside an open `{...}` token, so it never suggests mid-name.
+
 !!! info
     Any placeholder with no known value renders as `--`, so the template shape stays stable even when geo data is missing.
 
@@ -112,3 +114,5 @@ Any config whose address matches a line uses that name in place of `{IPNAME}`. A
 ### Auto-test latency
 
 `{LATENCY}` stays fresh through an optional **auto-test** — a checkbox in the Config Names section, turned off by default. When enabled, the panel periodically re-measures config IPs at the interval you choose (10–1440 minutes), so `{LATENCY}` reflects recent results. When disabled, `{LATENCY}` renders `--` unless you run a manual test from the Proxy IP page. Note that this uses a small amount of Worker requests.
+
+Latency is measured from the Worker's network (the same edge reachability test used by the Proxy IP page), so it reflects how quickly the panel can reach that address - not your local ping.
