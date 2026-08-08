@@ -84,7 +84,7 @@ You can change the template to any combination of the placeholders below.
 - `{ISP}` — internet service provider.
 - `{ASN}` — AS number.
 - `{TYPE}` — connection type: `Hosting`, `Mobile` or `Residential`.
-- `{LATENCY}` — latency, when the panel supplies a measured value.
+- `{LATENCY}` — latency in ms, kept fresh by the optional auto-test below (or a manual test from the Proxy IP page); `--` when no measured value exists.
 - `{IP}` — the config address.
 - `{IPNAME}` — your custom name for the address, if you set one below.
 - `{B}` — the panel brand name.
@@ -99,11 +99,16 @@ The `{FLAG}` emoji is derived from the two-letter country code returned by the g
 
 ### Custom names per IP
 
-To give a specific IP a fixed name, add one pair per line in the format `IP = name`. For example:
+To give a specific IP a fixed name, add one entry on its own line in the **Clean IPs** box. Each line is either a bare host or `host # Name` — the part after the first `#` is the config remark shown as `{IPNAME}`. For example:
 
 ```
-1.2.3.4 = Home
-5.6.7.8 = Office
+1.2.3.4 # My Server
+1.1.1.1 # Cloudflare
+1.0.0.1
 ```
 
-Any config whose address matches an entry uses that name in place of `{IPNAME}`. Addresses are matched as written (IPv6 brackets are stripped), so a config for that address picks up the mapped name automatically.
+Any config whose address matches a line uses that name in place of `{IPNAME}`. Addresses are matched as written (IPv6 brackets are stripped). A line like `1.2.3.4 #` with an empty name simply contributes the bare host with no name.
+
+### Auto-test latency
+
+`{LATENCY}` stays fresh through an optional **auto-test** — a checkbox in the Config Names section, turned off by default. When enabled, the panel periodically re-measures config IPs at the interval you choose (10–1440 minutes), so `{LATENCY}` reflects recent results. When disabled, `{LATENCY}` renders `--` unless you run a manual test from the Proxy IP page. Note that this uses a small amount of Worker requests.

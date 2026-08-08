@@ -312,6 +312,7 @@
                             <div>
                                 <textarea id="cleanIPs" name="cleanIPs" rows="1"></textarea>
                             </div>
+                            <span class="hint">Optional: append " # Name" to name a line.</span>
                         </div>
                         <div class="form-control">
                             <span>TLS Ports</span>
@@ -561,17 +562,32 @@
                         <h3>Config Names</h3>
                     </summary>
                     <div class="section">
+                        <datalist id="nameTemplateTokens">
+                            <option value="{FLAG}"></option>
+                            <option value="{COUNTRY}"></option>
+                            <option value="{CITY}"></option>
+                            <option value="{REGION}"></option>
+                            <option value="{ISP}"></option>
+                            <option value="{ASN}"></option>
+                            <option value="{TYPE}"></option>
+                            <option value="{LATENCY}"></option>
+                            <option value="{IP}"></option>
+                            <option value="{IPNAME}"></option>
+                            <option value="{INDEX}"></option>
+                            <option value="{PORT}"></option>
+                            <option value="{MARKER}"></option>
+                            <option value="{B}"></option>
+                            <option value="{F}"></option>
+                            <option value="{D}"></option>
+                            <option value="{C}"></option>
+                        </datalist>
                         <div class="form-control">
                             <label for="nameTemplate">Config Name Template</label>
                             <div>
-                                <input type="text" id="nameTemplate" name="nameTemplate"
+                                <input type="text" id="nameTemplate" name="nameTemplate" list="nameTemplateTokens"
                                     placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}">
                             </div>
-                            <span class="hint">
-                                Placeholders: {MARKER} {FLAG} {COUNTRY} {CITY} {REGION} {ISP} {ASN} {TYPE}
-                                {LATENCY} {IP} {IPNAME}. Example presets:
-                                {FLAG}{COUNTRY}{CITY} - {IP} or {FLAG}{COUNTRY} {CITY} {LATENCY}ms.
-                            </span>
+                            <span class="hint">Compose a config name from placeholders — see help for the full list.</span>
                         </div>
                         <div class="form-control">
                             <label for="latencyAutoTest">Auto-test config IPs latency</label>
