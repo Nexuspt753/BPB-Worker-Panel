@@ -124,6 +124,7 @@ export async function generateRemark(
             brand: _project_,
             index,
             address,
+            port,
             geo: (await resolveGeo(env, address)) ?? undefined,
             latency: latency != null ? String(latency) : undefined,
             customName: ipNameMap.get(normalize(address)) || undefined,
