@@ -312,7 +312,6 @@
                             <div>
                                 <textarea id="cleanIPs" name="cleanIPs" rows="1"></textarea>
                             </div>
-                            <span class="hint">Optional: append " # Name" to name a line.</span>
                         </div>
                         <div class="form-control">
                             <span>TLS Ports</span>
@@ -569,17 +568,14 @@
                                     placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}">
                                 <ul id="nameTemplateSuggestions" class="template-suggestions" hidden></ul>
                             </div>
-                            <span class="hint">Compose a config name from placeholders — see help for the full list.</span>
                         </div>
                         <div class="form-control">
                             <label for="latencyAutoTest">Auto-test config IPs latency</label>
                             <div><input type="checkbox" id="latencyAutoTest" name="latencyAutoTest"></div>
-                            <span class="hint">Opt-in: periodically re-measures config IPs so {LATENCY} stays fresh. Uses Worker requests.</span>
                         </div>
                         <div class="form-control">
                             <label for="latencyIntervalMin">Latency interval (minutes)</label>
                             <div><input type="number" id="latencyIntervalMin" name="latencyIntervalMin" min="10" max="1440"></div>
-                            <span class="hint">How often to auto-test (10–1440).</span>
                         </div>
                     </div>
                 </details>
