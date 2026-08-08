@@ -2,6 +2,7 @@ import { PanelSettings } from '#types/settings';
 import { isBase64, isDomain, isHex, isIPv4, isIPv4CIDR, isIPv6, isIPv6CIDR, isValidUrl } from '@utils';
 import { isValidUUID } from '@common';
 import { getGlobals } from '@settings';
+import { splitIpAndName } from '@cores/latency';
 
 export interface ValidationError {
     field: string;
@@ -182,7 +183,11 @@ function validateCustomRules(form: PanelSettings, errors: ValidationError[]) {
 }
 
 function validateCleanIPs(form: PanelSettings, errors: ValidationError[]) {
-    const invalids = form.cleanIPs.filter(val => !isValidHost(val));
+    const invalids = form.cleanIPs
+        .map(splitIpAndName)
+        .filter(x => !isValidHost(x.host))
+        .map(x => x.host);
+
     if (invalids.length) {
         errors.push({
             field: 'Clean IPs - Domains',

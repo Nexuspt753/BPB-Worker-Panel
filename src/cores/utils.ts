@@ -65,7 +65,7 @@ export async function getConfigAddresses(domain: string, isFragment: boolean): P
         domain,
         ...ipv4,
         ...ipv6.map((ip: string) => `[${ip}]`),
-        ...cleanIPs
+        ...cleanIPs.map(cleanIpHost)
     ];
 
     return addrs.concatIf(!isFragment, customCdnAddrs);
