@@ -1,7 +1,6 @@
 // Env is a global ambient type (declared in src/types/global.d.ts) — no import.
 import { getConfigAddresses } from './utils';
 import { getSettings } from '@settings';
-import { connect } from 'cloudflare:sockets';
 
 const LATENCY_PREFIX = 'latency:';
 export const LATENCY_TTL = 60 * 60 * 24; // 24h
@@ -27,32 +26,25 @@ export async function setLatency(env: Env, address: string, ms: number): Promise
     await env.kv.put(`${LATENCY_PREFIX}${address}`, JSON.stringify(rec), { expirationTtl: LATENCY_TTL });
 }
 
-const DEFAULT_SNI = 'speed.cloudflare.com';
 const TIMEOUT_MS = 5000;
 export async function checkLatency(address: string): Promise<{ ok: boolean; elapsedMs: number }> {
+    // Raw TCP probing to port 443 is blocked by the Workers runtime ("consider using fetch"),
+    // so measure reachability/round-trip via a plain HTTP fetch on port 80.
     const start = Date.now();
-    const TEST_PATH = '/__down?bytes=5000';
-    const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), TIMEOUT_MS)
-    );
     try {
-        const socket = connect({ hostname: address, port: 443 });
-        const writer = socket.writable.getWriter();
-        const req = `GET ${TEST_PATH} HTTP/1.1\r\nHost: ${DEFAULT_SNI}\r\nConnection: close\r\n\r\n`;
-        await writer.write(new TextEncoder().encode(req));
-        writer.releaseLock();
-        const reader = socket.readable.getReader();
-        const { value, done } = await Promise.race([reader.read(), timeout]);
-        reader.releaseLock();
-        await socket.close().catch(() => { });
-        if (done || !value) return { ok: false, elapsedMs: Date.now() - start };
-        const response = new TextDecoder().decode(value);
-        const isOk = /^HTTP\/1\.[01] 400/.test(response) && /cf-ray:/i.test(response);
-        return { ok: isOk, elapsedMs: Date.now() - start };
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        const res = await fetch(`http://${address}/__down?bytes=5000`, {
+            redirect: 'manual',
+            signal: controller.signal,
+        });
+        clearTimeout(timer);
+        return { ok: true, elapsedMs: Date.now() - start };
     } catch {
         return { ok: false, elapsedMs: Date.now() - start };
     }
 }
+
 
 export async function sweepLatency(env: Env): Promise<void> {
     const { mainDomain, customDomain } = getSettings();
