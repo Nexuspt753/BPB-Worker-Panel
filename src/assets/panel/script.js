@@ -1,5 +1,9 @@
 const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
+const nameTemplateTokens = [
+    'FLAG', 'COUNTRY', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'LATENCY',
+    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'B', 'F', 'D', 'C'
+];
 const proxyForm = document.getElementById('configForm');
 const [
     selectElements,
@@ -14,7 +18,102 @@ const [
     'textarea',
     'input[type=checkbox]'
 ].map(query => proxyForm.querySelectorAll(query));
+function initTemplateAutocomplete() {
+    const input = document.getElementById('nameTemplate');
+    const list = document.getElementById('nameTemplateSuggestions');
+    if (!input || !list) return;
 
+    let openIndex = -1;
+
+    const highlight = () => {
+        [...list.children].forEach((option, index) => {
+            option.classList.toggle('active', index === openIndex);
+        });
+        const active = list.children[openIndex];
+        if (active) active.scrollIntoView({ block: 'nearest' });
+    };
+
+    const hide = () => {
+        list.hidden = true;
+        list.replaceChildren();
+        openIndex = -1;
+    };
+
+    const tokenContext = () => {
+        const caret = input.selectionStart ?? input.value.length;
+        const before = input.value.slice(0, caret);
+        const lastOpen = before.lastIndexOf('{');
+        if (lastOpen === -1) return null;
+        if (before.lastIndexOf('}') > lastOpen) return null;
+        const fragment = before.slice(lastOpen + 1);
+        if (!/^[A-Za-z]*$/.test(fragment)) return null;
+        return { start: lastOpen, fragment: fragment.toUpperCase() };
+    };
+
+    const choose = (token) => {
+        const context = tokenContext();
+        if (!context) return;
+        const caret = input.selectionStart ?? input.value.length;
+        const inserted = `{${token}}`;
+        input.value = input.value.slice(0, context.start) + inserted + input.value.slice(caret);
+        const next = context.start + inserted.length;
+        input.setSelectionRange(next, next);
+        hide();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    const update = () => {
+        const context = tokenContext();
+        if (!context) return hide();
+        const options = nameTemplateTokens.filter(token => token.startsWith(context.fragment));
+        if (!options.length) return hide();
+        list.replaceChildren(...options.map((token) => {
+            const option = document.createElement('li');
+            option.dataset.token = token;
+            option.textContent = `{${token}}`;
+            option.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+                choose(token);
+            });
+            return option;
+        }));
+        openIndex = 0;
+        list.hidden = false;
+    };
+
+    input.addEventListener('input', update);
+    input.addEventListener('click', update);
+    input.addEventListener('focus', update);
+    input.addEventListener('blur', () => setTimeout(hide, 120));
+    input.addEventListener('keyup', (event) => {
+        if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key)) update();
+    });
+
+    input.addEventListener('keydown', (event) => {
+        const isOpen = !list.hidden;
+        const count = list.children.length;
+        if (event.key === 'ArrowDown' && isOpen) {
+            event.preventDefault();
+            openIndex = (openIndex + 1) % count;
+            highlight();
+        } else if (event.key === 'ArrowUp' && isOpen) {
+            event.preventDefault();
+            openIndex = (openIndex - 1 + count) % count;
+            highlight();
+        } else if ((event.key === 'Enter' || event.key === 'Tab') && isOpen) {
+            const active = list.children[openIndex];
+            if (active) {
+                event.preventDefault();
+                choose(active.dataset.token);
+            }
+        } else if (event.key === 'Escape' && isOpen) {
+            event.preventDefault();
+            hide();
+        }
+    });
+}
+
+initTemplateAutocomplete();
 getUsage();
 initPanel();
 fetchIPInfo();
