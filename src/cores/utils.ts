@@ -3,6 +3,7 @@ import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
 import { resolveGeo, normalize } from './geo';
 import { renderName } from './naming';
+import { getLatency, splitIpAndName, cleanIpHost } from './latency';
 
 interface DnsResult {
     ipv4: string[];
@@ -85,8 +86,7 @@ export async function generateRemark(
         customCdnAddrs,
         customDomain,
         upstreamParams: { upstreamServer },
-        nameTemplate,
-        ipNames
+        nameTemplate
     } = getSettings();
 
     const chainSign = isChain ? '🔗 ' : '';
@@ -98,7 +98,7 @@ export async function generateRemark(
     const configType = `${fragmentSign}${customDomainSign}${customCdnSign}`;
 
     let addressType;
-    cleanIPs.includes(address)
+    cleanIPs.some(c => cleanIpHost(c) === address)
         ? addressType = 'Clean IP'
         : addressType = isDomain(address) ? 'Domain' : isIPv4(address) ? 'IPv4' : isIPv6(address) ? 'IPv6' : '';
 
@@ -109,14 +109,24 @@ export async function generateRemark(
 
     const fallback = `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
 
+    // Precompute a host->name map from the `#`-suffixed entries in cleanIPs.
+    const ipNameMap = new Map<string, string>();
+    cleanIPs.forEach(entry => {
+        const { host, name } = splitIpAndName(entry);
+        if (name) ipNameMap.set(normalize(host), name);
+    });
+
+    const latency = await getLatency(env, address);
+
     // Route through the naming engine unless the user left the template empty.
     if (nameTemplate && nameTemplate.trim()) {
         const rendered = renderName(nameTemplate, {
             brand: _project_,
             index,
             address,
-            geo: await resolveGeo(env, address),
-            customName: ipNames[normalize(address)] || undefined,
+            geo: (await resolveGeo(env, address)) ?? undefined,
+            latency: latency != null ? String(latency) : undefined,
+            customName: ipNameMap.get(normalize(address)) || undefined,
             marker: configType
         });
         // If rendering yields nothing meaningful, keep today's output.

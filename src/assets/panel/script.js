@@ -11,7 +11,7 @@ const [
     'select',
     'input[type=number]',
     'input:not([type=file])',
-    'textarea:not(.kv-lines)',
+    'textarea',
     'input[type=checkbox]'
 ].map(query => proxyForm.querySelectorAll(query));
 
@@ -152,19 +152,6 @@ function renderPanel(proxySettings, tgSettings, subscriptions, clients) {
             elm.style.height = `${elm.scrollHeight}px`;
         });
     });
-    const ipNamesElm = document.getElementById('ipNames');
-    if (ipNamesElm) {
-        const ipNamesLines = Object.entries(proxySettings.ipNames ?? {})
-            .filter(([, name]) => name)
-            .map(([ip, name]) => `${ip} = ${name}`);
-        ipNamesElm.value = ipNamesLines.join('\r\n');
-        ipNamesElm.style.height = 'auto';
-        ipNamesElm.style.height = `${ipNamesElm.scrollHeight}px`;
-        ipNamesElm.addEventListener('input', () => {
-            ipNamesElm.style.height = 'auto';
-            ipNamesElm.style.height = `${ipNamesElm.scrollHeight}px`;
-        });
-    }
 
     renderPorts(ports.map(Number));
     renderNoises(xrayUdpNoises);
@@ -721,19 +708,6 @@ function validateSettings() {
         const value = form[key];
         form[key] = value?.split('\n').map(val => val.trim()).filter(Boolean) || [];
     });
-
-    const ipNamesElm = document.getElementById('ipNames');
-    if (ipNamesElm && typeof form.ipNames === 'string') {
-        const ipNames = {};
-        form.ipNames.split('\n').forEach(line => {
-            const separatorIndex = line.indexOf('=');
-            if (separatorIndex === -1) return;
-            const ip = line.slice(0, separatorIndex).trim();
-            const name = line.slice(separatorIndex + 1).trim();
-            if (ip && name) ipNames[ip] = name;
-        });
-        form.ipNames = ipNames;
-    }
 
     return form;
 }
