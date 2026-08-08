@@ -1,9 +1,9 @@
 import { decompressGzipBase64, respond, HttpStatus } from '@common';
 import { authenticate } from '@auth';
 import { resolveDNS } from '@cores/utils';
+import { checkLatency, setLatency } from '@cores/latency';
 import { getGlobals } from '@settings';
 import { fallback } from './utils';
-import { connect } from 'cloudflare:sockets';
 
 export async function handleProxyIPs(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -24,7 +24,7 @@ export async function handleProxyIPs(request: Request, env: Env): Promise<Respon
             return getProxyIPsInfo();
 
         case 'proxy-ip/test':
-            return testProxyIP();
+            return testProxyIP(env);
 
         default:
             return fallback(request);
@@ -114,8 +114,6 @@ async function geoLookupBatch(ipList: string[]): Promise<GeoResult[]> {
     return results;
 }
 
-const DEFAULT_SNI = 'speed.cloudflare.com';
-const TIMEOUT_MS = 5000;
 const ATTEMPTS = 5;
 
 interface Attempt {
@@ -124,54 +122,12 @@ interface Attempt {
     elapsedMs: number;
 }
 
-async function checkProxyIP(address: string): Promise<Omit<Attempt, 'attempt'>> {
-    const start = Date.now();
-    const TEST_PATH = '/__down?bytes=5000';
-
-    const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), TIMEOUT_MS)
-    );
-
-    try {
-        const socket = connect({ hostname: address, port: 443 });
-        const writer = socket.writable.getWriter();
-        const req = `GET ${TEST_PATH} HTTP/1.1\r\nHost: ${DEFAULT_SNI}\r\nConnection: close\r\n\r\n`;
-
-        await writer.write(new TextEncoder().encode(req));
-        writer.releaseLock();
-        const reader = socket.readable.getReader();
-
-        const { value, done } = await Promise.race([reader.read(), timeout]);
-        reader.releaseLock();
-        await socket.close().catch(() => { });
-
-        if (done || !value) {
-            return { ok: false, elapsedMs: Date.now() - start };
-        }
-
-        const response = new TextDecoder().decode(value);
-        const isOk = /^HTTP\/1\.[01] 400/.test(response);
-        const hasCfRay = /cf-ray:/i.test(response);
-        const isHealthy = isOk && hasCfRay;
-
-        return {
-            ok: isHealthy,
-            elapsedMs: Date.now() - start
-        };
-    } catch (err) {
-        return {
-            ok: false,
-            elapsedMs: Date.now() - start
-        };
-    }
-}
-
-async function testProxyIP() {
+async function testProxyIP(env: Env) {
     const { searchParams } = getGlobals();
 
     const target = searchParams.get('target') as string;
     const attemptPromises = Array.from({ length: ATTEMPTS }, (_, i) =>
-        checkProxyIP(target).then(res => ({ attempt: i + 1, ...res }))
+        checkLatency(target).then(res => ({ attempt: i + 1, ...res }))
     );
 
     const attempts = await Promise.all(attemptPromises);
@@ -179,6 +135,10 @@ async function testProxyIP() {
     const avgLatencyMs = successes.length
         ? Math.round(successes.reduce((sum, a) => sum + a.elapsedMs, 0) / successes.length)
         : null;
+
+    if (avgLatencyMs !== null) {
+        await setLatency(env, target, avgLatencyMs);
+    }
 
     return respond(true, HttpStatus.OK, '', {
         successRate: `${successes.length}/${ATTEMPTS}`,
