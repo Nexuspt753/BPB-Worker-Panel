@@ -73,6 +73,8 @@ export interface KvSettings {
     amneziaNoiseSizeMax: number;
     customSubs: string[];
     customConfigs: string[];
+    latencyAutoTest: boolean;
+    latencyIntervalMin: number;
     nameTemplate: string;             // e.g. "{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}"
     remoteSettings: string;
     panelVersion: string;

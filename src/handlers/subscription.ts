@@ -2,16 +2,32 @@ import { getClNormalConfig, getClWarpConfig } from '@cores/clash/configs';
 import { getURLConfigs } from '@cores/common';
 import { getSbCustomConfig, getSbWarpConfig } from '@cores/sing-box/configs';
 import { getXrCustomConfigs, getXrWarpConfigs } from '@cores/xray/configs';
-import { setSettings, getGlobals, getKvSettings, getSharedSettings } from '@settings';
+import { setSettings, getSettings, getGlobals, getKvSettings, getSharedSettings } from '@settings';
 import { fallback } from './utils';
 import { getWireguardConfigs } from '@cores/wireguard';
 import { HttpStatus } from '@common';
 import { SharedSettings } from '#types/settings';
+import { sweepLatency } from '@cores/latency';
 
-export async function handleSubscriptions(request: Request, env: Env): Promise<Response> {
+export async function handleSubscriptions(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await setSettings(env);
     const { pathname, client } = getGlobals();
     const path = pathname.split('/')[3];
+
+    // Lazy latency auto-test — cheap KV gets only; writes the re-arm timestamp BEFORE firing (stampede guard).
+    // Runs only for real sub paths so a 404 fallback does not pay the cost. settings is already in scope
+    // (setSettings loaded it above) — do not call setSettings again.
+    if (env?.kv) {
+        const settings = getSettings();
+        if (settings.latencyAutoTest) {
+            const last = Number(await env.kv.get('latencySweepAt') ?? 0);
+            const due = last <= 0 || Date.now() - last >= settings.latencyIntervalMin * 60_000;
+            if (due) {
+                await env.kv.put('latencySweepAt', String(Date.now()));
+                ctx.waitUntil(sweepLatency(env).catch(() => {}));
+            }
+        }
+    }
 
     switch (path) {
         case 'normal':

@@ -160,7 +160,9 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
             ['customSubs'],
             ['remoteSettings'],
             ['customConfigs'],
-            ['nameTemplate']
+            ['nameTemplate'],
+            ['latencyAutoTest'],
+            ['latencyIntervalMin']
         ];
 
     try {

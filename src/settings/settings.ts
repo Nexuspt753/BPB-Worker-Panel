@@ -226,6 +226,8 @@ let kvSettings: KvSettings = {
     customSubs: [],
     customConfigs: [],
     nameTemplate: '{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}',
+    latencyAutoTest: false,
+    latencyIntervalMin: 60,
     warpRemoteDNS: '1.1.1.1',
     warpEndpoints: ['engage.cloudflareclient.com:2408'],
     warpBestPingInterval: 30,

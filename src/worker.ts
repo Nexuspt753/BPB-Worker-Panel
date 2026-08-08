@@ -11,7 +11,7 @@ import { handleWebsocket } from '@handlers/websocket';
 import { init, getGlobals } from '@settings';
 
 export default {
-	async fetch(request: Request, env: Env) {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		try {
 			init(request, env);
 			if (request.headers.get('Upgrade') === 'websocket') return handleWebsocket(request);
@@ -26,7 +26,7 @@ export default {
 					return handleLogin(request, env);
 
 				case `/${securePath}/sub`:
-					return handleSubscriptions(request, env);
+					return handleSubscriptions(request, env, ctx);
 
 				case `/${securePath}/telegram`:
 					return handleTelegram(request, env);
