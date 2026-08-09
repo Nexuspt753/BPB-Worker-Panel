@@ -266,15 +266,6 @@ h4 {
     width: 100%;
 }
 
-.form-control .hint {
-    font-size: 0.8rem;
-    color: var(--color-text-secondary);
-    opacity: 0.8;
-    line-height: 1.4;
-    align-self: flex-start;
-    padding: 0 2px;
-}
-
 .template-autocomplete {
     position: relative;
     width: 100%;

@@ -70,7 +70,7 @@ function resolveToken(
         case 'ASN': return asn;
         case 'TYPE': return typeMap(g);
         case 'LATENCY': return ctx.latency || '';
-        case 'IP': return g?.ip || ctx.ip || '';
+        case 'IP': return g?.ip || ctx.address || '';
         case 'IPNAME': return ctx.customName || '';
         case 'B': return ctx.brand || '';
         case 'F': return flag;
