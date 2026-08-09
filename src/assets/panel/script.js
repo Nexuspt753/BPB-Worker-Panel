@@ -284,11 +284,17 @@ let currentOS = detectOS();
 function detectOS() {
     const ua = navigator.userAgent || '';
     if (/android/i.test(ua)) return 'android';
-    if (/ipad|iphone|ipod|macintosh.*(ipad|iphone)/i.test(ua)) return 'ios';
+    if (/ipad|iphone|ipod/i.test(ua)) return 'ios';
+
+    // iPadOS 13+ hides the "iPad" token in desktop-class browsing and
+    // impersonates a Macintosh; iPads still report multi-touch and no
+    // MacBook/iMac does, so a Mac-class UA with touch points means iPad.
+    if ((/mac os x|macintosh/i.test(ua)) && navigator.maxTouchPoints > 1) return 'ios';
+
     if (/mac os x|macintosh/i.test(ua)) return 'macos';
     if (/windows/i.test(ua)) return 'windows';
     if (/linux|cros/i.test(ua)) return 'linux';
-    return 'windows'; // safest default
+    return 'windows'; // safest default keeps the copy fallback available
 }
 
 // Human-readable OS names for the "this app isn't available here" message.
@@ -331,62 +337,70 @@ function buildClientLink(os, type, core, client, label) {
     const strategy = resolveClientLink(client, os);
 
     // Plain HTTP(S) subscription URL that the client can fetch directly.
-    const subUrl = new URL(`./sub/${type}`, window.location.href);
+    // Importers that read a name use the {name} template placeholder; the
+    // rest title the group from the URL's #fragment.
+    // husi only parses URI-list feeds, so even on a JSON-profile row its
+    // one-click (and its copy fallback) must point at the raw endpoint.
+    const subType = type !== 'raw' && strategy?.uriList && !strategy?.profile ? 'raw' : type;
+    const subUrl = new URL(`./sub/${subType}`, window.location.href);
     subUrl.searchParams.append('app', core);
-    subUrl.hash = `💦 BPB ${label}`;
+    subUrl.hash = `\u{1F4A6} BPB ${label}`;
     const plainUrl = subUrl.href;
 
     // Unknown client, or one with no build for this device: there is no app
     // here to hand the subscription to, so copying is the only honest action.
-    if (!strategy) return { action: 'copy', url: plainUrl };
+    if (!strategy) return { action: 'copy', url: plainUrl, plain: plainUrl };
     if (!strategy.platforms?.includes(os)) {
-        return { action: 'unavailable', url: plainUrl, platforms: strategy.platforms || [] };
+        return { action: 'unavailable', url: plainUrl, plain: plainUrl, platforms: strategy.platforms || [] };
     }
 
     // The app is installed-able here. Prefer its own import mechanism.
-    // `raw` serves a base64 URI list rather than a structured profile, so it
-    // may only be handed to importers that are known to sniff that format —
-    // otherwise the app would fetch it and fail to parse.
-    const template = strategy.schemes?.[os] || strategy.scheme;
-    if (template && (type !== 'raw' || strategy.uriList)) {
-        // Most clients title the subscription from the URL's `#fragment`.
-        // Those that instead read a `name=` query param get `{name}`, without
+    // raw rows serve a base64 URI list; the other rows serve a structured
+    // profile (xray JSON, sing-box JSON, Clash YAML). A scheme is only fired
+    // for a body the app is known to parse: uriList for raw rows, profile
+    // for the structured rows. An empty per-OS scheme entry
+    // (schemes[os] = '') means that build registers no working deep link,
+    // so the panel copies instead of firing a dead scheme.
+    const template = strategy.schemes?.[os] ?? strategy.scheme;
+    const canImport = subType === 'raw' ? strategy.uriList : strategy.profile;
+    if (template && canImport) {
+        // Most clients title the subscription from the URL's #fragment.
+        // Those that instead read a name= query param get {name}, without
         // which they fall back to a generated placeholder like a timestamp.
         const url = template
             .replace('{enc}', encodeURIComponent(plainUrl))
             .replace('{b64}', btoa(plainUrl))
             .replace('{url}', plainUrl)
-            .replace('{name}', encodeURIComponent(`💦 BPB ${label}`));
+            .replace('{name}', encodeURIComponent(`\u{1F4A6} BPB ${label}`));
 
-        return { action: 'scheme', url };
+        return { action: 'scheme', url, plain: plainUrl };
     }
 
-    if (strategy.fileImport) return { action: 'download', url: plainUrl };
+    // WireGuard-family endpoints serve a ZIP archive of .conf files, not a
+    // single importable config - still the closest thing to one tap.
+    if (strategy.fileImport) return { action: 'download', url: plainUrl, plain: plainUrl, archive: true };
 
-    return { action: 'copy', url: plainUrl };
+    return { action: 'copy', url: plainUrl, plain: plainUrl };
 }
 
 // One-click: add the current subscription to the given client app on this device.
 async function oneClickAdd(client, type, core, label) {
-    const { action, url, platforms } = buildClientLink(currentOS, type, core, client, label);
+    const { action, url, plain, platforms } = buildClientLink(currentOS, type, core, client, label);
 
     if (action === 'download') {
         dlUrl(url);
         notify('info', 'Add to ' + client, [
-            'Downloading the config file.',
-            'Open it with ' + client + ' to import it.'
+            'Downloading the config archive.',
+            'Unpack the ZIP and open one of the .conf files with ' + client + ' to import it.'
         ]);
         return;
     }
 
     if (action === 'scheme') {
-        // Put the plain subscription URL — not the scheme — on the clipboard,
-        // so that if the app is not installed the user still has something
-        // they can paste. Then fire the scheme to import in one tap.
-        const subUrl = new URL(`./sub/${type}`, window.location.href);
-        subUrl.searchParams.append('app', core);
-        subUrl.hash = `💦 BPB ${label}`;
-        copyToClipboard(subUrl.href);
+        // Put the plain subscription URL - not the scheme - on the clipboard
+        // first: if the app is not installed (or another app with the same
+        // scheme claims the tap), the user still has the link to paste.
+        copyToClipboard(plain ?? url);
 
         const a = document.createElement('a');
         a.href = url;
@@ -397,7 +411,7 @@ async function oneClickAdd(client, type, core, label) {
 
         notify('info', 'Add to ' + client, [
             client + ' should open and import the subscription.',
-            'If it did not, the link is on your clipboard — paste it in ' + client + '.'
+            'If another installed app opened instead, it can import the same link; otherwise paste the copied link into ' + client + '.'
         ]);
         return;
     }
@@ -406,12 +420,12 @@ async function oneClickAdd(client, type, core, label) {
 
     if (action === 'unavailable') {
         // The app has no build for this device, so there is no scheme to fire
-        // and nothing useful to open — say so instead of failing silently.
+        // and nothing useful to open - say so instead of failing silently.
         const where = (platforms || []).map(os => OS_LABELS[os] || os).join(', ');
         notify('info', 'Add to ' + client, [
             'Subscription link copied to your clipboard.',
             where
-                ? client + ' runs on ' + where + ' — open this link there.'
+                ? client + ' runs on ' + where + ' - open this link there.'
                 : client + ' is not available on this device.'
         ]);
         return;
@@ -419,7 +433,7 @@ async function oneClickAdd(client, type, core, label) {
 
     // The app runs here but has no import scheme (v2rayN, for instance):
     // opening the sub endpoint in a browser would only download the config,
-    // so we deliberately do not open it — the user pastes the link instead.
+    // so we deliberately do not open it - the user pastes the link instead.
     notify('info', 'Add to ' + client, [
         'Subscription link copied to your clipboard.',
         'Paste it into ' + client + ' to import the subscription.'
