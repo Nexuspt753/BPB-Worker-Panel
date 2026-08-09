@@ -1,9 +1,19 @@
 import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
-import { resolveGeo, normalize } from './geo';
+import { resolveGeo, normalize, type GeoInfo } from './geo';
 import { renderName } from './naming';
 import { getLatency, splitIpAndName, cleanIpHost } from './latency';
+
+// Per-request memo for geo/latency lookups: the same address repeats across
+// ports and protocols in one subscription render, so cache the results here
+// (cleared once per request in handleSubscriptions).
+const geoMemo = new Map<string, GeoInfo | null>();
+const latencyMemo = new Map<string, number | null>();
+export function resetNameMemos(): void {
+    geoMemo.clear();
+    latencyMemo.clear();
+}
 
 interface DnsResult {
     ipv4: string[];
@@ -116,7 +126,15 @@ export async function generateRemark(
         if (name) ipNameMap.set(normalize(host), name);
     });
 
-    const latency = await getLatency(env, address);
+    if (!latencyMemo.has(address)) {
+        latencyMemo.set(address, await getLatency(env, address));
+    }
+    const latency = latencyMemo.get(address) ?? null;
+
+    if (!geoMemo.has(address)) {
+        geoMemo.set(address, (await resolveGeo(env, address)) ?? null);
+    }
+    const geo = geoMemo.get(address) ?? undefined;
 
     // Route through the naming engine unless the user left the template empty.
     if (nameTemplate && nameTemplate.trim()) {
@@ -125,7 +143,7 @@ export async function generateRemark(
             index,
             address,
             port,
-            geo: (await resolveGeo(env, address)) ?? undefined,
+            geo,
             latency: latency != null ? String(latency) : undefined,
             customName: ipNameMap.get(normalize(address)) || undefined,
             marker: configType

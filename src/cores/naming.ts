@@ -83,8 +83,8 @@ function resolveToken(
     }
 }
 
-// The plan also names a `typeMap(geo)` helper. Export it so tests and the
-// panel can drive the geo-type -> readable-tag mapping directly.
+// Map a geo connection type to the readable tag shown in config names.
+// Exported so tests and the panel can drive the mapping directly.
 export function typeMap(geo?: GeoInfo | null): string {
     switch (geo?.type) {
         case 'hosting': return 'Hosting';

@@ -8,9 +8,11 @@ import { getWireguardConfigs } from '@cores/wireguard';
 import { HttpStatus } from '@common';
 import { SharedSettings } from '#types/settings';
 import { sweepLatency } from '@cores/latency';
+import { resetNameMemos } from '@cores/utils';
 
 export async function handleSubscriptions(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await setSettings(env);
+    resetNameMemos();
     const { pathname, client } = getGlobals();
     const path = pathname.split('/')[3];
 
