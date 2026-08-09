@@ -225,7 +225,7 @@ let kvSettings: KvSettings = {
     fragmentMaxSplitMax: 0,
     customSubs: [],
     customConfigs: [],
-    nameTemplate: '{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}',
+    nameTemplate: '', // off by default: classic names until the user sets a template
     latencyAutoTest: false,
     latencyIntervalMin: 60,
     warpRemoteDNS: '1.1.1.1',

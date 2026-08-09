@@ -119,25 +119,26 @@ export async function generateRemark(
 
     const fallback = `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
 
-    // Precompute a host->name map from the `#`-suffixed entries in cleanIPs.
-    const ipNameMap = new Map<string, string>();
-    cleanIPs.forEach(entry => {
-        const { host, name } = splitIpAndName(entry);
-        if (name) ipNameMap.set(normalize(host), name);
-    });
-
-    if (!latencyMemo.has(address)) {
-        latencyMemo.set(address, await getLatency(env, address));
-    }
-    const latency = latencyMemo.get(address) ?? null;
-
-    if (!geoMemo.has(address)) {
-        geoMemo.set(address, (await resolveGeo(env, address)) ?? null);
-    }
-    const geo = geoMemo.get(address) ?? undefined;
-
-    // Route through the naming engine unless the user left the template empty.
+    // Route through the naming engine only when the user set a template;
+    // otherwise fall back to the classic remark with zero extra lookups.
     if (nameTemplate && nameTemplate.trim()) {
+        // Precompute a host->name map from the `#`-suffixed entries in cleanIPs.
+        const ipNameMap = new Map<string, string>();
+        cleanIPs.forEach(entry => {
+            const { host, name } = splitIpAndName(entry);
+            if (name) ipNameMap.set(normalize(host), name);
+        });
+
+        if (!latencyMemo.has(address)) {
+            latencyMemo.set(address, await getLatency(env, address));
+        }
+        const latency = latencyMemo.get(address) ?? null;
+
+        if (!geoMemo.has(address)) {
+            geoMemo.set(address, (await resolveGeo(env, address)) ?? null);
+        }
+        const geo = geoMemo.get(address) ?? undefined;
+
         const rendered = renderName(nameTemplate, {
             brand: _project_,
             index,
@@ -156,6 +157,7 @@ export async function generateRemark(
 
     return fallback;
 }
+
 
 export function randomUpperCase(str: string): string {
     let result = '';
