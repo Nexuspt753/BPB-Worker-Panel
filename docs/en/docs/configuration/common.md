@@ -63,13 +63,13 @@ You can change this behaviour by setting a desired well known domain here. Pleas
 
 By default each generated config is named from its address type and port. If you prefer more descriptive names, this section lets you build a custom **name template** that is auto-filled for every config from a geo lookup (country, city, region, ISP, provider and connection type) plus any custom names you define yourself.
 
-The default template is:
+The template is empty by default, so names stay exactly as before (address type and port) until you fill it in. For example:
 
 ```
 {MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}
 ```
 
-You can change the template to any combination of the placeholders below.
+You can build the template from any combination of the placeholders below.
 
 The template box shows an autocomplete dropdown as you type: press `{` to see every placeholder, keep typing to filter the list, and use the arrow keys with Enter/Tab to insert one. The dropdown only appears while the caret is inside an open `{...}` token, so it never suggests mid-name.
 
