@@ -33,7 +33,7 @@ On an operating system a client does not ship on, the button copies the subscrip
 
 Some clients register the same URL scheme as others (`clashmeta`, `v2rayng` and `sing-box` are also claimed by Hiddify, for example). When several such apps are installed, the operating system may open another one — that app can still import the same subscription, and the plain link is copied to your clipboard first.
 
-The device OS is detected from the user agent; iPadOS in desktop-class browsing mode is still treated as iPadOS, not macOS.
+The device OS is detected from the user agent; iPadOS is recognized correctly even in desktop-class browsing mode, so it is never mistaken for macOS.
 
 Legend:
 
