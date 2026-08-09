@@ -326,6 +326,28 @@ function resolveClientLink(client, os) {
     return map[client];
 }
 
+// Canonical app name for toasts/UI when the row label is a composite
+// (v2rayN(G) → v2rayNG on Android, v2rayN on desktop).
+function resolveClientName(client, os) {
+    if (client === 'v2rayN(G)' || client === 'v2rayNG(G)') {
+        const map = globalThis.clientLinkMap;
+        if (map?.['v2rayNG']?.platforms?.includes(os)) return 'v2rayNG';
+        return 'v2rayN';
+    }
+    return client;
+}
+
+// btoa requires a Latin1 string. URL.href is normally already percent-encoded
+// ASCII, but if any engine leaves raw Unicode in the string we fall back to a
+// UTF-8 → binary path so Shadowrocket's sub://{b64} import cannot throw.
+function toBase64(str) {
+    try {
+        return btoa(str);
+    } catch {
+        return btoa(unescape(encodeURIComponent(str)));
+    }
+}
+
 // Build the one-click action for a client app on the current device.
 //
 // Returns one of:
@@ -368,10 +390,10 @@ function buildClientLink(os, type, core, client, label) {
         // Those that instead read a name= query param get {name}, without
         // which they fall back to a generated placeholder like a timestamp.
         const url = template
-            .replace('{enc}', encodeURIComponent(plainUrl))
-            .replace('{b64}', btoa(plainUrl))
-            .replace('{url}', plainUrl)
-            .replace('{name}', encodeURIComponent(`\u{1F4A6} BPB ${label}`));
+            .replaceAll('{enc}', encodeURIComponent(plainUrl))
+            .replaceAll('{b64}', toBase64(plainUrl))
+            .replaceAll('{url}', plainUrl)
+            .replaceAll('{name}', encodeURIComponent(`\u{1F4A6} BPB ${label}`));
 
         return { action: 'scheme', url, plain: plainUrl };
     }
@@ -384,15 +406,19 @@ function buildClientLink(os, type, core, client, label) {
 }
 
 // One-click: add the current subscription to the given client app on this device.
-async function oneClickAdd(client, type, core, label) {
+function oneClickAdd(client, type, core, label) {
     const { action, url, plain, platforms } = buildClientLink(currentOS, type, core, client, label);
+    // Composite row labels (v2rayN(G)) resolve to the real app name for toasts.
+    const name = resolveClientName(client, currentOS);
 
     if (action === 'download') {
-        dlUrl(url);
-        notify('info', 'Add to ' + client, [
+        // Notify first: a location-based download can race the toast away
+        // before the user sees the "unpack the ZIP" instructions.
+        notify('info', 'Add to ' + name, [
             'Downloading the config archive.',
-            'Unpack the ZIP and open one of the .conf files with ' + client + ' to import it.'
+            'Unpack the ZIP and open one of the .conf files with ' + name + ' to import it.'
         ]);
+        dlUrl(url);
         return;
     }
 
@@ -409,9 +435,9 @@ async function oneClickAdd(client, type, core, label) {
         a.click();
         a.remove();
 
-        notify('info', 'Add to ' + client, [
-            client + ' should open and import the subscription.',
-            'If another installed app opened instead, it can import the same link; otherwise paste the copied link into ' + client + '.'
+        notify('info', 'Add to ' + name, [
+            name + ' should open and import the subscription.',
+            'If another installed app opened instead, it can import the same link; otherwise paste the copied link into ' + name + '.'
         ]);
         return;
     }
@@ -422,11 +448,11 @@ async function oneClickAdd(client, type, core, label) {
         // The app has no build for this device, so there is no scheme to fire
         // and nothing useful to open - say so instead of failing silently.
         const where = (platforms || []).map(os => OS_LABELS[os] || os).join(', ');
-        notify('info', 'Add to ' + client, [
+        notify('info', 'Add to ' + name, [
             'Subscription link copied to your clipboard.',
             where
-                ? client + ' runs on ' + where + ' - open this link there.'
-                : client + ' is not available on this device.'
+                ? name + ' runs on ' + where + ' - open this link there.'
+                : name + ' is not available on this device.'
         ]);
         return;
     }
@@ -434,9 +460,9 @@ async function oneClickAdd(client, type, core, label) {
     // The app runs here but has no import scheme (v2rayN, for instance):
     // opening the sub endpoint in a browser would only download the config,
     // so we deliberately do not open it - the user pastes the link instead.
-    notify('info', 'Add to ' + client, [
+    notify('info', 'Add to ' + name, [
         'Subscription link copied to your clipboard.',
-        'Paste it into ' + client + ' to import the subscription.'
+        'Paste it into ' + name + ' to import the subscription.'
     ]);
 }
 
@@ -487,10 +513,39 @@ function showQRCode(subUrl) {
     });
 }
 
-function copyToClipboard(url) {
-    navigator.clipboard.writeText(url)
-        .then(() => notify('info', 'Copied to clipboard', [url]))
-        .catch(error => console.error('Failed to copy:', error));
+function copyToClipboard(text) {
+    const done = () => notify('info', 'Copied to clipboard', [text]);
+    const fail = (error) => console.error('Failed to copy:', error);
+
+    // Prefer the async Clipboard API; fall back to execCommand for non-secure
+    // contexts (or older browsers) where navigator.clipboard is unavailable.
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {
+            if (!fallbackCopy(text)) fail(new Error('clipboard write failed'));
+            else done();
+        });
+        return;
+    }
+
+    if (!fallbackCopy(text)) fail(new Error('clipboard unavailable'));
+    else done();
+}
+
+function fallbackCopy(text) {
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+    } catch {
+        return false;
+    }
 }
 
 function copyDoh() {
@@ -498,9 +553,20 @@ function copyDoh() {
     copyToClipboard(url);
 }
 
-async function dlUrl(subUrl) {
+// Trigger a same-origin download without navigating the panel away. A hidden
+// <a download> keeps the SPA mounted; Content-Disposition on the response
+// still supplies the real filename for ZIP/JSON configs.
+function dlUrl(subUrl) {
     const url = new URL(subUrl);
-    window.location.href = url.protocol === 'sing-box:' ? url.searchParams.get('url') : subUrl;
+    const href = url.protocol === 'sing-box:' ? url.searchParams.get('url') : String(subUrl);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = '';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
 }
 
 async function exportFileSettings(event) {
@@ -1309,7 +1375,9 @@ function renderSubscriptions(subscriptions) {
                 const icon = createIcon('verified');
                 const title = elm('span', { textContent: client });
                 const addBtn = elm('button', {
+                    type: 'button',
                     title: `Add to ${client}`,
+                    ariaLabel: `Add to ${client}`,
                     className: 'client-add',
                     onclick: () => oneClickAdd(client, type, core, label)
                 }, createIcon('add_circle'));

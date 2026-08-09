@@ -1,3 +1,5 @@
+<!-- Keep the One-click matrix below in sync with `clientLinks` (one-click import strategy per client) and the `subscriptions` rows in src/settings/settings.ts. -->
+
 # :material-fingerprint:{ .md .middle } Supported Clients
 
 Here you can find minimum requirements for proper connection using BPB Panel and also download latest version of clients. This feature is added to Telegram bot too.
@@ -30,6 +32,12 @@ On an operating system a client does not ship on, the button copies the subscrip
 | Stash | — | ✅ deep link | — | — | ✅ deep link |
 | Wireguard / WG Tunnel / Amnezia | file | file | file | file | file |
 
+A few details are not visible in the table:
+
+- **`v2rayN(G)`** is a combined row: on Android it resolves to **v2rayNG** (and its link fires `v2rayng://`), on desktop it resolves to **v2rayN** (copy). The notification names the resolved app.
+- On the **raw** subscription rows the body is a base64 URI list, which only some importers parse. A client whose importer reads structured profiles only (Streisand, for example) falls back to **copy** there; the deep links above apply to the normal / fragment / warp / warp-pro rows.
+- **`PassWall`** is a router add-on for OpenWrt, not a client app — its button always copies the link and says it is not available on this device.
+- **`Hiddify`** registers its Windows/macOS/Linux protocol handlers at first launch, so on a fresh desktop install you may need to open Hiddify once before the button can hand the subscription over.
 
 Some clients register the same URL scheme as others (`clashmeta`, `v2rayng` and `sing-box` are also claimed by Hiddify, for example). When several such apps are installed, the operating system may open another one — that app can still import the same subscription, and the plain link is copied to your clipboard first.
 

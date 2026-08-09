@@ -71,11 +71,14 @@ const body = `
 globalThis.clientLinkMap = ${JSON.stringify(clientLinks)};
 globalThis.window = window;
 ${grab(script, 'resolveClientLink')}
+${grab(script, 'resolveClientName')}
+${grab(script, 'toBase64')}
 ${grab(script, 'buildClientLink')}
+${grab(script, 'fallbackCopy')}
 ${grab(script, 'copyToClipboard')}
 ${grab(script, 'oneClickAdd')}
 ${script.match(/const OS_LABELS = \{[\s\S]*?\};/)[0]}
-return { oneClickAdd, buildClientLink, setOS: (o) => { currentOS = o; } };
+return { oneClickAdd, buildClientLink, resolveClientName, setOS: (o) => { currentOS = o; } };
 `;
 const api = new Function('window', 'let currentOS;\n' + body)(win);
 
@@ -206,6 +209,10 @@ calls.schemeFired = undefined;
 await api.oneClickAdd('v2rayN(G)', 'normal', 'xray', 'Test');
 check(calls.schemeFired?.startsWith('v2rayng://install-sub?url='),
     `v2rayN(G) on Android must fire v2rayng:// (got ${calls.schemeFired})`);
+check(api.resolveClientName('v2rayN(G)', 'android') === 'v2rayNG',
+    'v2rayN(G) composite label must resolve to v2rayNG on Android');
+check(api.resolveClientName('v2rayN(G)', 'windows') === 'v2rayN',
+    'v2rayN(G) composite label must resolve to v2rayN on desktop');
 
 api.setOS('ios');
 calls.schemeFired = undefined;

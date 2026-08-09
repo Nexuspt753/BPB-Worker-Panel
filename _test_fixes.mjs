@@ -51,11 +51,16 @@ globalThis.window = { location: { href: 'https://example.com/hatbm7M6mrjUCJu/pan
 const body = `
 globalThis.clientLinkMap = ${JSON.stringify(clientLinks)};
 ${grab(script, 'resolveClientLink')}
+${grab(script, 'toBase64')}
 ${grab(script, 'buildClientLink')}
 return { buildClientLink, setOS: (o) => { currentOS = o; } };
 `;
 const api = new Function('window', 'let currentOS;\n' + body)(globalThis.window);
-const EMOJI = '%F0%9F%92%A6';
+// The subscription fragment emoji is authored once in script.js; derive it
+// here so the test cannot silently drift from a renamed emoji.
+const fragmentLit = script.match(/subUrl\.hash = `([^`]*?) BPB/)?.[1];
+if (!fragmentLit) throw new Error('subscription fragment emoji not found in script.js');
+const EMOJI = encodeURIComponent(Function('return "' + fragmentLit + '";')());
 
 let r = api.buildClientLink('android', 'normal', 'sing-box', 'husi', 'Test');
 check(r.action === 'scheme' && r.url.startsWith('husi://subscription?url='), 'husi/android/normal -> husi scheme (got ' + r.url + ')');
