@@ -9,9 +9,11 @@ import { getLatency, splitIpAndName, cleanIpHost } from './latency';
 // ports and protocols in one subscription render, so cache the results here
 // (cleared once per request in handleSubscriptions).
 const geoMemo = new Map<string, GeoInfo | null>();
+const egressMemo = new Map<string, GeoInfo | null>();
 const latencyMemo = new Map<string, number | null>();
 export function resetNameMemos(): void {
     geoMemo.clear();
+    egressMemo.clear();
     latencyMemo.clear();
 }
 
@@ -137,18 +139,31 @@ export async function generateRemark(
         if (!geoMemo.has(address)) {
             geoMemo.set(address, (await resolveGeo(env, address)) ?? null);
         }
-        const geo = geoMemo.get(address) ?? undefined;
+        const dialGeo = geoMemo.get(address) ?? undefined;
 
-        const rendered = renderName(nameTemplate, {
-            brand: _project_,
-            index,
-            address,
-            port,
-            geo,
-            latency: latency != null ? String(latency) : undefined,
-            customName: ipNameMap.get(normalize(address)) || undefined,
-            marker: configType
-        });
+        // The classic lookup above geolocates the DIAL address (e.g. a Cloudflare
+                // edge IP), which is NOT the IP traffic actually exits from — ip-api pins
+                // most CF edge IPs to CF's registered country, so labels were misleading.
+                // Resolve the geo of the real egress instead, falling back to the dial
+                // address only if the egress cannot be determined.
+                if (!egressMemo.has('egress')) {
+                    egressMemo.set('egress', await resolveEgressGeo(env));
+                }
+                const egress = egressMemo.get('egress');
+                const egressGeo = egress ?? dialGeo;
+                const egressIp = egress?.ip ?? (dialGeo?.ip ?? normalize(address));
+
+                const rendered = renderName(nameTemplate, {
+                    brand: _project_,
+                    index,
+                    address,
+                    port,
+                    geo: egressGeo,
+                    latency: latency != null ? String(latency) : undefined,
+                    customName: ipNameMap.get(normalize(address)) || undefined,
+                    marker: configType,
+                    egressIp
+                });
         // If rendering yields nothing meaningful, keep today's output.
         if (rendered.trim() && rendered.trim() !== '--') {
             return rendered;
@@ -156,6 +171,42 @@ export async function generateRemark(
     }
 
     return fallback;
+}
+
+// Resolve the geo of the IP traffic ACTUALLY exits from for this deployment,
+// not the dialed address. In `proxyip` mode the fallback relays every (blocked)
+// direct conn via a proxyIP, so the real egress is that proxyIP's IP. Otherwise
+// the exit is Cloudflare's own egress, probed live from the serving PoP.
+// Returns null when the egress cannot be determined (caller then falls back to
+// the classic dial-address geo).
+async function resolveEgressGeo(env: Env): Promise<GeoInfo | null> {
+    const { proxyIpMode, proxyIPs } = getSettings();
+
+    if (proxyIpMode === 'proxyip' && proxyIPs.length) {
+        const { host } = parseHostPort(proxyIPs[0], true);
+        if (!host) return null;
+
+        let ip = host;
+        if (isDomain(host)) {
+            const { ipv4 } = await resolveDNS(host, true).catch(() => ({ ipv4: [], ipv6: [] }));
+            if (ipv4.length) ip = ipv4[0];
+        }
+
+        if (isIPv4(ip) || isIPv6(ip)) return resolveGeo(env, ip);
+        return null;
+    }
+
+    try {
+        const res = await fetch(`https://ipv4.icanhazip.com/?t=${Date.now()}`, {
+            headers: { accept: 'text/plain' },
+        });
+        if (!res.ok) return null;
+        const ip = (await res.text()).trim();
+        if (!isIPv4(ip)) return null;
+        return resolveGeo(env, ip);
+    } catch {
+        return null;
+    }
 }
 
 

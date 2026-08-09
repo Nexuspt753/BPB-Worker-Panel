@@ -5,9 +5,9 @@ import type { GeoInfo } from './geo';
  *
  * Placeholders (matched by a robust `{[A-Za-z0-9_]+}` regex, user-supplied):
  *   {FLAG} {COUNTRY} {CITY} {REGION} {ISP} {ASN} {TYPE} {LATENCY} {IP} {IPNAME}
- *   {B} (brand) {F} (flag) {D} (address/domain) {C} (country)
- *   {index} {port}
- * Any unknown placeholder, or a known-but-empty value, renders as `--`.
+  *   {B} (brand) {F} (flag) {D} (address/domain) {C} (country)
+  *   {index} {port} {EGRESS_IP}
+  * Any unknown placeholder, or a known-but-empty value, renders as `--`.
  *
  * The template is user-supplied; a missing/malformed template renders an
  * empty (or unchanged) string without throwing.
@@ -25,6 +25,7 @@ export function renderName(
         customName?: string;
         marker?: string;
         latency?: string;
+        egressIp?: string;
     },
 ): string {
     if (typeof template !== 'string') return '';
@@ -52,6 +53,7 @@ function resolveToken(
         brand?: string; index: number; label?: string; ip?: string;
         port?: number; address?: string; geo?: GeoInfo;
         customName?: string; marker?: string; latency?: string;
+        egressIp?: string;
     },
     g: GeoInfo | undefined,
     flag: string,
@@ -78,8 +80,9 @@ function resolveToken(
         case 'C': return country;
         case 'MARKER': return ctx.marker || '';
         case 'INDEX': return ctx.index != null ? String(ctx.index) : '';
-        case 'PORT': return ctx.port != null ? String(ctx.port) : '';
-        default: return null; // unknown -> '--'
+        case 'EGRESS_IP': return ctx.egressIp || '';
+                case 'PORT': return ctx.port != null ? String(ctx.port) : '';
+                default: return null; // unknown -> '--'
     }
 }
 

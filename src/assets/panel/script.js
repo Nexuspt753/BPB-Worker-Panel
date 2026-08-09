@@ -2,7 +2,7 @@ const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
 const nameTemplateTokens = [
     'FLAG', 'COUNTRY', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'LATENCY',
-    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'B', 'F', 'D', 'C'
+    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'B', 'F', 'D', 'C', 'EGRESS_IP'
 ];
 const proxyForm = document.getElementById('configForm');
 const [
