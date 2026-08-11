@@ -39,8 +39,10 @@ export function renderName(
     const asn = g?.asn ?? '';
 
     // Substitute each {NAME} token; unknown or empty -> '--'.
+    // MARKER is intentionally blank when no prefix applies (not '--').
     return template.replace(/\{([A-Za-z0-9_]+)\}/g, (_m, name) => {
         const out = resolveToken(name, ctx, g, flag, country, city, region, isp, asn);
+        if (out === '' && name.toUpperCase() === 'MARKER') return '';
         return out == null || out === '' ? '--' : out;
     });
 }
@@ -72,7 +74,7 @@ function resolveToken(
         case 'ASN': return asn;
         case 'TYPE': return typeMap(g);
         case 'LATENCY': return ctx.latency || '';
-        case 'IP': return g?.ip || ctx.address || '';
+        case 'IP': return ctx.address || '';
         case 'IPNAME': return ctx.customName || '';
         case 'B': return ctx.brand || '';
         case 'F': return flag;
