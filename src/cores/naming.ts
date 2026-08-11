@@ -1,33 +1,68 @@
 import type { GeoInfo } from './geo';
 
 /**
- * Render a config-name template string against a context of resolved values.
+ * Split a Clean IP entry of the form `host # Optional Name` into its parts.
+ * Pure string helper — kept in this module (which imports nothing but a type)
+ * so validators and the latency store can use it without dragging in settings.
+ */
+export function splitIpAndName(entry: string): { host: string; name: string } {
+    const idx = entry.indexOf('#');
+    if (idx === -1) return { host: entry.trim(), name: '' };
+    return {
+        host: entry.slice(0, idx).trim(),
+        name: entry.slice(idx + 1).trim(),
+    };
+}
+
+export function cleanIpHost(entry: string): string {
+    return splitIpAndName(entry).host;
+}
+
+/**
+ * Bare form of an address: IPv6 literals lose their `[...]` wrapper. Used as the
+ * canonical key for the geo and latency caches so both stores agree, and as the
+ * value ip-api is queried with.
+ */
+export function normalizeAddress(address: string): string {
+    const trimmed = (address || '').trim();
+    return trimmed.startsWith('[') && trimmed.endsWith(']')
+        ? trimmed.slice(1, -1)
+        : trimmed;
+}
+
+export interface NameContext {
+    brand?: string;
+    index: number;
+    port?: number;
+    address?: string;
+    geo?: GeoInfo;
+    customName?: string;
+    marker?: string;
+    latency?: string;
+    egressIp?: string;
+    proto?: string;
+    chain?: boolean;
+}
+
+// Tokens that legitimately render as an empty string instead of the `--`
+// placeholder, because "not set" is a meaningful state for them.
+const BLANK_OK = new Set(['MARKER', 'CHAIN']);
+
+/**
+ * Render a config-name template against a context of resolved values.
  *
- * Placeholders (matched by a robust `{[A-Za-z0-9_]+}` regex, user-supplied):
+ * Placeholders are matched by `{[A-Za-z0-9_]+}` and are case-insensitive:
  *   {FLAG} {COUNTRY} {CITY} {REGION} {ISP} {ASN} {TYPE} {LATENCY} {IP} {IPNAME}
-  *   {B} (brand) {F} (flag) {D} (address/domain) {C} (country)
-  *   {index} {port} {EGRESS_IP}
-  * Any unknown placeholder, or a known-but-empty value, renders as `--`.
+ *   {EGRESS_IP} {INDEX} {PORT} {PROTO} {CHAIN} {MARKER}
+ *   {B} (brand) {F} (flag) {D} (address/domain) {C} (country)
+ *
+ * An unknown placeholder, or a known-but-empty value, renders as `--`.
+ * {MARKER} and {CHAIN} render empty when they do not apply.
  *
  * The template is user-supplied; a missing/malformed template renders an
- * empty (or unchanged) string without throwing.
+ * empty string without throwing.
  */
-export function renderName(
-    template: string,
-    ctx: {
-        brand?: string;
-        index: number;
-        label?: string;
-        ip?: string;
-        port?: number;
-        address?: string;
-        geo?: GeoInfo;
-        customName?: string;
-        marker?: string;
-        latency?: string;
-        egressIp?: string;
-    },
-): string {
+export function renderName(template: string, ctx: NameContext): string {
     if (typeof template !== 'string') return '';
 
     const g = ctx.geo;
@@ -38,25 +73,61 @@ export function renderName(
     const isp = g?.isp ?? '';
     const asn = g?.asn ?? '';
 
-    // Substitute each {NAME} token; unknown or empty -> '--'.
-    // MARKER is intentionally blank when no prefix applies (not '--').
-    return template.replace(/\{([A-Za-z0-9_]+)\}/g, (_m, name) => {
-        const out = resolveToken(name, ctx, g, flag, country, city, region, isp, asn);
-        if (out === '' && name.toUpperCase() === 'MARKER') return '';
+    return template.replace(/\{([A-Za-z0-9_]+)\}/g, (_m, name: string) => {
+        const key = name.toUpperCase();
+        const out = resolveToken(key, ctx, g, flag, country, city, region, isp, asn);
+        if (out === '' && BLANK_OK.has(key)) return '';
         return out == null || out === '' ? '--' : out;
     });
 }
 
+/**
+ * Which distinguishing facts a template already carries. Used by `uniquifyName`
+ * to keep rendered names unique per config (clash proxy `name` and sing-box
+ * outbound `tag` must be unique — duplicates silently break the proxy-groups /
+ * chain wiring).
+ */
+export function templateTokens(template: string): Set<string> {
+    const found = template.match(/\{([A-Za-z0-9_]+)\}/g) ?? [];
+    return new Set(found.map(token => token.slice(1, -1).toUpperCase()));
+}
+
+/**
+ * Config names MUST be unique: clash keys proxies by `name`, sing-box keys
+ * outbounds by `tag`, and both wire `proxy-groups` / chain detours by that
+ * string. A geo-only template like `{FLAG}{COUNTRY}` renders identically for
+ * every port, protocol and chain variant of an address — and because the geo
+ * tokens resolve from the single deployment egress, identically for every
+ * address too. Duplicates make clash drop proxies and can point a chain's
+ * `dialer-proxy` at itself, so append whatever facts the template left out.
+ */
+export function uniquifyName(rendered: string, template: string, ctx: NameContext): string {
+    const tokens = templateTokens(template);
+    const suffix: string[] = [];
+
+    // {IP}/{D} alone still collides across ports and protocols, so every fact is
+    // checked on its own rather than assuming one implies the others.
+    if (!tokens.has('CHAIN') && ctx.chain) suffix.push('🔗');
+    // The marker carries the F/D/C flags, which separate the same clean IP dialed
+    // through the custom domain (or as fragment) from the plain one.
+    const marker = (ctx.marker ?? '').trim();
+    if (!tokens.has('MARKER') && marker) suffix.push(marker);
+    if (!tokens.has('PROTO') && ctx.proto) suffix.push(ctx.proto);
+    if (!tokens.has('PORT') && ctx.port != null) suffix.push(String(ctx.port));
+    // Only {IP}/{D} truly identify the address. {IPNAME} looks like it does but
+    // renders '--' for every address without a `# Name`, so it cannot stand in
+    // for the index.
+    const identifiesAddress = tokens.has('IP') || tokens.has('D');
+    if (!tokens.has('INDEX') && !identifiesAddress) suffix.push(`#${ctx.index}`);
+
+    return suffix.length ? `${rendered} ${suffix.join(' ')}` : rendered;
+}
+
 // Lookup used by the real implementation; kept here so the replace callback
-// stays self-contained.
+// stays self-contained. `key` is already upper-cased.
 function resolveToken(
-    name: string,
-    ctx: {
-        brand?: string; index: number; label?: string; ip?: string;
-        port?: number; address?: string; geo?: GeoInfo;
-        customName?: string; marker?: string; latency?: string;
-        egressIp?: string;
-    },
+    key: string,
+    ctx: NameContext,
     g: GeoInfo | undefined,
     flag: string,
     country: string,
@@ -65,7 +136,7 @@ function resolveToken(
     isp: string,
     asn: string,
 ): string | null {
-    switch (name.toUpperCase()) {
+    switch (key) {
         case 'FLAG': return flag;
         case 'COUNTRY': return country;
         case 'CITY': return city;
@@ -81,10 +152,12 @@ function resolveToken(
         case 'D': return ctx.address || '';
         case 'C': return country;
         case 'MARKER': return ctx.marker || '';
+        case 'CHAIN': return ctx.chain ? '🔗' : '';
+        case 'PROTO': return ctx.proto || '';
         case 'INDEX': return ctx.index != null ? String(ctx.index) : '';
         case 'EGRESS_IP': return ctx.egressIp || '';
-                case 'PORT': return ctx.port != null ? String(ctx.port) : '';
-                default: return null; // unknown -> '--'
+        case 'PORT': return ctx.port != null ? String(ctx.port) : '';
+        default: return null; // unknown -> '--'
     }
 }
 

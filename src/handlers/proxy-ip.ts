@@ -1,7 +1,7 @@
 import { decompressGzipBase64, respond, HttpStatus } from '@common';
 import { authenticate } from '@auth';
-import { resolveDNS } from '@cores/utils';
-import { checkLatency, setLatency } from '@cores/latency';
+import { resolveDNS, isDomain, isIPv4, isIPv6 } from '@cores/utils';
+import { checkLatency } from '@cores/latency';
 import { getGlobals } from '@settings';
 import { fallback } from './utils';
 
@@ -24,7 +24,7 @@ export async function handleProxyIPs(request: Request, env: Env): Promise<Respon
             return getProxyIPsInfo();
 
         case 'proxy-ip/test':
-            return testProxyIP(env);
+            return testProxyIP();
 
         default:
             return fallback(request);
@@ -122,10 +122,15 @@ interface Attempt {
     elapsedMs: number;
 }
 
-async function testProxyIP(env: Env) {
+async function testProxyIP() {
     const { searchParams } = getGlobals();
 
-    const target = searchParams.get('target') as string;
+    const target = searchParams.get('target') ?? '';
+    // The target is interpolated into a probe URL, so only accept a bare host.
+    if (!isIPv4(target) && !isIPv6(target) && !isDomain(target)) {
+        return respond(false, HttpStatus.BAD_REQUEST, 'Invalid target.');
+    }
+
     const attemptPromises = Array.from({ length: ATTEMPTS }, (_, i) =>
         checkLatency(target).then(res => ({ attempt: i + 1, ...res }))
     );
@@ -135,10 +140,6 @@ async function testProxyIP(env: Env) {
     const avgLatencyMs = successes.length
         ? Math.round(successes.reduce((sum, a) => sum + a.elapsedMs, 0) / successes.length)
         : null;
-
-    if (avgLatencyMs !== null) {
-        await setLatency(env, target, avgLatencyMs);
-    }
 
     return respond(true, HttpStatus.OK, '', {
         successRate: `${successes.length}/${ATTEMPTS}`,

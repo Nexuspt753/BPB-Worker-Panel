@@ -563,9 +563,10 @@
                     <div class="section">
                         <div class="form-control">
                             <label for="nameTemplate">Config Name Template</label>
-                                <div class="template-autocomplete">
+                            <div class="template-autocomplete">
                                 <input type="text" id="nameTemplate" name="nameTemplate" autocomplete="off"
-                                                                    placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME} (egress: {EGRESS_IP})">
+                                    maxlength="200"
+                                    placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME} (egress: {EGRESS_IP})">
                                 <ul id="nameTemplateSuggestions" class="template-suggestions" hidden></ul>
                             </div>
                         </div>
@@ -575,7 +576,7 @@
                         </div>
                         <div class="form-control">
                             <label for="latencyIntervalMin">Latency interval (minutes)</label>
-                            <div><input type="number" id="latencyIntervalMin" name="latencyIntervalMin" min="10" max="1440"></div>
+                            <div><input type="number" id="latencyIntervalMin" name="latencyIntervalMin" min="10" max="1440" step="1"></div>
                         </div>
                     </div>
                 </details>

@@ -2,7 +2,7 @@ import { PanelSettings } from '#types/settings';
 import { isBase64, isDomain, isHex, isIPv4, isIPv4CIDR, isIPv6, isIPv6CIDR, isValidUrl } from '@utils';
 import { isValidUUID } from '@common';
 import { getGlobals } from '@settings';
-import { splitIpAndName } from '@cores/latency';
+import { splitIpAndName, templateTokens } from '@cores/naming';
 
 export interface ValidationError {
     field: string;
@@ -34,7 +34,9 @@ const validators = [
     validatePath,
     validateCustomDomain,
     validateExtSubs,
-    validateRemoteSettings
+    validateRemoteSettings,
+    validateNameTemplate,
+    validateLatencyInterval
 ];
 
 export function validateSettings(form: PanelSettings | null): ValidationError[] | null {
@@ -186,7 +188,9 @@ function validateCleanIPs(form: PanelSettings, errors: ValidationError[]) {
     const invalids = form.cleanIPs
         .map(splitIpAndName)
         .filter(x => !isValidHost(x.host))
-        .map(x => x.host);
+        // A line that is only a `# Name` has no host at all — show the raw line
+        // instead of an empty bullet.
+        .map(x => x.host || '(empty host)');
 
     if (invalids.length) {
         errors.push({
@@ -197,6 +201,58 @@ function validateCleanIPs(form: PanelSettings, errors: ValidationError[]) {
                 'Invalid values are:\n',
                 ...invalids.map(ip => `+ ${ip}`)
             ]
+        });
+    }
+}
+
+const NAME_TEMPLATE_MAX = 200;
+const KNOWN_TOKENS = new Set([
+    'FLAG', 'COUNTRY', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'LATENCY',
+    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
+    'B', 'F', 'D', 'C'
+]);
+
+function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
+    const template = form.nameTemplate;
+    if (typeof template !== 'string' || !template.trim()) return;
+
+    if (template.length > NAME_TEMPLATE_MAX) {
+        errors.push({
+            field: 'Config Name Template',
+            message: [`It cannot be longer than ${NAME_TEMPLATE_MAX} characters.`]
+        });
+    }
+
+    // Config names end up as clash proxy names, sing-box tags and URL fragments.
+    // Newlines would break the URI list and YAML, so reject control characters.
+    if ([...template].some(ch => { const c = ch.codePointAt(0) ?? 0; return c < 0x20 || c === 0x7f; })) {
+        errors.push({
+            field: 'Config Name Template',
+            message: ['It cannot contain line breaks or control characters.']
+        });
+    }
+
+    const unknown = [...templateTokens(template)].filter(token => !KNOWN_TOKENS.has(token));
+    if (unknown.length) {
+        errors.push({
+            field: 'Config Name Template',
+            message: [
+                'Unknown tokens (they would render as "--").',
+                'Invalid values are:\n',
+                ...unknown.map(token => `+ {${token}}`)
+            ]
+        });
+    }
+}
+
+function validateLatencyInterval(form: PanelSettings, errors: ValidationError[]) {
+    if (!form.latencyAutoTest) return;
+    const interval = Number(form.latencyIntervalMin);
+
+    if (!Number.isInteger(interval) || interval < 10 || interval > 1440) {
+        errors.push({
+            field: 'Latency Auto Test Interval',
+            message: ['It should be a whole number of minutes between 10 and 1440.']
         });
     }
 }

@@ -1,20 +1,31 @@
 import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
-import { resolveGeo, normalize, type GeoInfo } from './geo';
-import { renderName } from './naming';
-import { getLatency, splitIpAndName, cleanIpHost } from './latency';
+import { resolveGeo, type GeoInfo } from './geo';
+import { renderName, uniquifyName, normalizeAddress as normalize, cleanIpHost, splitIpAndName, type NameContext } from './naming';
+import { getLatency } from './latency';
 
-// Per-request memo for geo/latency lookups: the same address repeats across
-// ports and protocols in one subscription render, so cache the results here
-// (cleared once per request in handleSubscriptions).
-const geoMemo = new Map<string, GeoInfo | null>();
-const egressMemo = new Map<string, GeoInfo | null>();
-const latencyMemo = new Map<string, number | null>();
-export function resetNameMemos(): void {
-    geoMemo.clear();
-    egressMemo.clear();
-    latencyMemo.clear();
+// In-isolate cache for geo/latency lookups: the same address repeats across
+// ports, protocols and chain variants of a single render. Entries are keyed by
+// value (never by request) and expire quickly, so a reused isolate can share
+// them safely — unlike a per-request map that concurrent requests would race on
+// while clearing. The in-flight promise is what gets stored, so the parallel
+// first lookups of one render collapse into a single call.
+const MEMO_TTL_MS = 60_000;
+const MEMO_MAX_ENTRIES = 500;
+interface Memo<T> { value: Promise<T>; at: number; }
+const memos = new Map<string, Memo<unknown>>();
+
+function memoize<T>(key: string, resolver: () => Promise<T>): Promise<T> {
+    const hit = memos.get(key);
+    if (hit && Date.now() - hit.at < MEMO_TTL_MS) return hit.value as Promise<T>;
+
+    const value = resolver();
+    if (memos.size >= MEMO_MAX_ENTRIES) memos.clear();
+    memos.set(key, { value, at: Date.now() });
+    // A rejection must not be cached — drop it so the next render retries.
+    value.catch(() => { if (memos.get(key)?.value === value) memos.delete(key); });
+    return value;
 }
 
 interface DnsResult {
@@ -80,7 +91,11 @@ export async function getConfigAddresses(domain: string, isFragment: boolean): P
         ...cleanIPs.map(cleanIpHost)
     ];
 
-    return addrs.concatIf(!isFragment, customCdnAddrs);
+    // De-duplicate: a Clean IP that also appears in the DNS answer (or is listed
+    // twice) would otherwise produce two byte-identical configs — and with a
+    // name template that includes {IP} but not {INDEX}, two identical names,
+    // which clash and sing-box cannot both key.
+    return [...new Set(addrs.concatIf(!isFragment, customCdnAddrs).filter(Boolean))];
 }
 
 export async function generateRemark(
@@ -131,46 +146,49 @@ export async function generateRemark(
             if (name) ipNameMap.set(normalize(host), name);
         });
 
-        if (!latencyMemo.has(address)) {
-            latencyMemo.set(address, await getLatency(env, address));
-        }
-        const latency = latencyMemo.get(address) ?? null;
+        const latency = await memoize(`lat:${normalize(address)}`, () => getLatency(env, address));
+        const dialGeo = await memoize(`geo:${normalize(address)}`, async () =>
+            (await resolveGeo(env, address)) ?? null) ?? undefined;
 
-        if (!geoMemo.has(address)) {
-            geoMemo.set(address, (await resolveGeo(env, address)) ?? null);
-        }
-        const dialGeo = geoMemo.get(address) ?? undefined;
+        // The lookup above geolocates the DIAL address (e.g. a Cloudflare edge
+        // IP), which is NOT the IP traffic actually exits from — ip-api pins most
+        // CF edge IPs to CF's registered country, so labels were misleading.
+        // Resolve the geo of the real egress instead, falling back to the dial
+        // address only if the egress cannot be determined.
+        const egress = await memoize(egressMemoKey(), () => resolveEgressGeo(env));
+        const egressGeo = egress ?? dialGeo;
+        const egressIp = egress?.ip ?? (dialGeo?.ip ?? normalize(address));
 
-        // The classic lookup above geolocates the DIAL address (e.g. a Cloudflare
-                // edge IP), which is NOT the IP traffic actually exits from — ip-api pins
-                // most CF edge IPs to CF's registered country, so labels were misleading.
-                // Resolve the geo of the real egress instead, falling back to the dial
-                // address only if the egress cannot be determined.
-                if (!egressMemo.has('egress')) {
-                    egressMemo.set('egress', await resolveEgressGeo(env));
-                }
-                const egress = egressMemo.get('egress');
-                const egressGeo = egress ?? dialGeo;
-                const egressIp = egress?.ip ?? (dialGeo?.ip ?? normalize(address));
+        const nameCtx: NameContext = {
+            brand: _project_,
+            index,
+            address,
+            port,
+            geo: egressGeo,
+            latency: latency != null ? String(latency) : undefined,
+            customName: ipNameMap.get(normalize(address)) || undefined,
+            marker: configType,
+            egressIp,
+            proto: protoSign,
+            chain: isChain
+        };
 
-                const rendered = renderName(nameTemplate, {
-                    brand: _project_,
-                    index,
-                    address,
-                    port,
-                    geo: egressGeo,
-                    latency: latency != null ? String(latency) : undefined,
-                    customName: ipNameMap.get(normalize(address)) || undefined,
-                    marker: configType,
-                    egressIp
-                });
+        const rendered = renderName(nameTemplate, nameCtx);
+
         // If rendering yields nothing meaningful, keep today's output.
         if (rendered.trim() && rendered.trim() !== '--') {
-            return rendered;
+            return uniquifyName(rendered, nameTemplate, nameCtx);
         }
     }
 
     return fallback;
+}
+
+// The egress depends on the proxy-IP settings, so it is memoized per resolved
+// mode+target rather than under a bare 'egress' key.
+function egressMemoKey(): string {
+    const { proxyIpMode, proxyIPs } = getSettings();
+    return `egress:${proxyIpMode}:${proxyIpMode === 'proxyip' ? (proxyIPs[0] ?? '') : ''}`;
 }
 
 // Resolve the geo of the IP traffic ACTUALLY exits from for this deployment,
@@ -179,6 +197,9 @@ export async function generateRemark(
 // the exit is Cloudflare's own egress, probed live from the serving PoP.
 // Returns null when the egress cannot be determined (caller then falls back to
 // the classic dial-address geo).
+const EGRESS_IP_KEY = 'egressIp';
+const EGRESS_IP_TTL = 60 * 60 * 6; // 6h — a PoP's egress IP is stable enough
+
 async function resolveEgressGeo(env: Env): Promise<GeoInfo | null> {
     const { proxyIpMode, proxyIPs } = getSettings();
 
@@ -196,13 +217,20 @@ async function resolveEgressGeo(env: Env): Promise<GeoInfo | null> {
         return null;
     }
 
+    // Cache the probed egress IP in KV: a cold isolate would otherwise call a
+    // third party on the critical path of every subscription fetch.
+    const cached = await env.kv.get(EGRESS_IP_KEY).catch(() => null);
+    if (cached && isIPv4(cached)) return resolveGeo(env, cached);
+
     try {
         const res = await fetch(`https://ipv4.icanhazip.com/?t=${Date.now()}`, {
             headers: { accept: 'text/plain' },
+            signal: AbortSignal.timeout(5000),
         });
         if (!res.ok) return null;
         const ip = (await res.text()).trim();
         if (!isIPv4(ip)) return null;
+        await env.kv.put(EGRESS_IP_KEY, ip, { expirationTtl: EGRESS_IP_TTL }).catch(() => { });
         return resolveGeo(env, ip);
     } catch {
         return null;

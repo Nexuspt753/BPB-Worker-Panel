@@ -74,11 +74,11 @@ You can build the template from any combination of the placeholders below.
 The template box shows an autocomplete dropdown as you type: press `{` to see every placeholder, keep typing to filter the list, and use the arrow keys with Enter/Tab to insert one. The dropdown only appears while the caret is inside an open `{...}` token, so it never suggests mid-name.
 
 !!! info
-    Any placeholder with no known value renders as `--`, so the template shape stays stable even when geo data is missing.
+    Any placeholder with no known value renders as `--`, so the template shape stays stable even when geo data is missing. `{MARKER}` and `{CHAIN}` are the exceptions: they render empty when they do not apply.
 
 ### Available placeholders
 
-- `{MARKER}` — the config-type prefix (`F ` for fragment, `D ` for custom domain, `C ` for custom CDN); empty when none apply.
+- `{MARKER}` — the config-type prefix (`F` for fragment, `D` for custom domain, `C` for custom CDN); empty when none apply.
 - `{FLAG}` — country flag emoji.
 - `{COUNTRY}` — country name.
 - `{CITY}` — city name.
@@ -86,18 +86,32 @@ The template box shows an autocomplete dropdown as you type: press `{` to see ev
 - `{ISP}` — internet service provider.
 - `{ASN}` — AS number.
 - `{TYPE}` — connection type: `Hosting`, `Mobile` or `Residential`.
-- `{LATENCY}` — latency in ms, kept fresh by the optional auto-test below (or a manual test from the Proxy IP page); `--` when no measured value exists.
+- `{LATENCY}` — latency in ms, kept fresh by the optional auto-test below; `--` when no measured value exists.
 - `{IP}` — the config address.
+- `{EGRESS_IP}` — the IP your traffic actually exits from (see below).
 - `{IPNAME}` — your custom name for the address, if you set one below.
+- `{PROTO}` — the config protocol.
+- `{CHAIN}` — 🔗 for the chain-proxy variant of a config; empty otherwise.
+- `{INDEX}` — the config index number.
+- `{PORT}` — the config port number.
 - `{B}` — the panel brand name.
 - `{F}` — same as flag (legacy).
 - `{D}` — the address/domain (legacy).
 - `{C}` — the country name (legacy).
-- `{index}` — the config index number.
-- `{port}` — the config port number.
+
+Placeholder names are case-insensitive, so `{flag}` and `{FLAG}` behave the same.
 
 !!! tip
-The `{FLAG}` emoji is derived from the two-letter country code returned by the geo lookup. Non-geo placeholders such as `{index}` and `{port}` always resolve without needing a lookup.
+    The `{FLAG}` emoji is derived from the two-letter country code returned by the geo lookup. Non-geo placeholders such as `{INDEX}` and `{PORT}` always resolve without needing a lookup.
+
+!!! note
+    Every config needs a unique name — clients key their proxies by it. If your template leaves out the facts that separate one config from another (port, protocol, chain variant, address), the panel appends the missing ones automatically. So a bare `{FLAG}{COUNTRY}` still produces distinct names such as `🇩🇪Germany VL 443 #1`.
+
+### Geo data describes the egress, not the address
+
+The geo placeholders (`{FLAG}`, `{COUNTRY}`, `{CITY}`, `{REGION}`, `{ISP}`, `{ASN}`, `{TYPE}`) describe the IP your traffic **exits** from, which is what a website you visit sees — not the address the client dials. Cloudflare edge IPs mostly geolocate to Cloudflare's own registered country, so labelling them would be misleading.
+
+In Proxy IP mode the egress is your first configured proxy IP; otherwise it is Cloudflare's own egress, probed once and cached. `{EGRESS_IP}` prints that address. If the egress cannot be determined, the placeholders fall back to the geo of the dialled address.
 
 ### Custom names per IP
 
@@ -113,6 +127,8 @@ Any config whose address matches a line uses that name in place of `{IPNAME}`. A
 
 ### Auto-test latency
 
-`{LATENCY}` stays fresh through an optional **auto-test** — a checkbox in the Config Names section, turned off by default. When enabled, the panel periodically re-measures config IPs at the interval you choose (10–1440 minutes), so `{LATENCY}` reflects recent results. When disabled, `{LATENCY}` renders `--` unless you run a manual test from the Proxy IP page. Note that this uses a small amount of Worker requests.
+`{LATENCY}` stays fresh through an optional **auto-test** — a checkbox in the Config Names section, turned off by default. When enabled, the panel periodically re-measures the addresses your configs dial at the interval you choose (10–1440 minutes), so `{LATENCY}` reflects recent results. When disabled, `{LATENCY}` renders `--`. Note that this uses a small amount of Worker requests.
 
-Latency is measured from the Worker's network (the same edge reachability test used by the Proxy IP page), so it reflects how quickly the panel can reach that address - not your local ping.
+Latency is measured from the Worker's network — how quickly the Cloudflare edge serving your panel reaches that address — not your local ping. The measurement is a plain HTTP round-trip, so treat it as a relative ranking between addresses rather than an exact figure for your own connection.
+
+The manual test on the Proxy IP page is separate: it health-checks the public proxy IPs listed there and does not feed `{LATENCY}`.

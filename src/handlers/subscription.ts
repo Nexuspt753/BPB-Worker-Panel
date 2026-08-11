@@ -8,28 +8,15 @@ import { getWireguardConfigs } from '@cores/wireguard';
 import { HttpStatus } from '@common';
 import { SharedSettings } from '#types/settings';
 import { sweepLatency } from '@cores/latency';
-import { resetNameMemos } from '@cores/utils';
+import { getConfigAddresses } from '@cores/utils';
 
 export async function handleSubscriptions(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await setSettings(env);
-    resetNameMemos();
     const { pathname, client } = getGlobals();
     const path = pathname.split('/')[3];
 
-    // Lazy latency auto-test — cheap KV gets only; writes the re-arm timestamp BEFORE firing (stampede guard).
-    // Runs only for real sub paths so a 404 fallback does not pay the cost. settings is already in scope
-    // (setSettings loaded it above) — do not call setSettings again.
-    if (env?.kv) {
-        const settings = getSettings();
-        if (settings.latencyAutoTest) {
-            const last = Number(await env.kv.get('latencySweepAt') ?? 0);
-            const due = last <= 0 || Date.now() - last >= settings.latencyIntervalMin * 60_000;
-            if (due) {
-                await env.kv.put('latencySweepAt', String(Date.now()));
-                ctx.waitUntil(sweepLatency(env).catch(() => {}));
-            }
-        }
-    }
+    // Never let the optional latency sweep break a subscription fetch.
+    await maybeSweepLatency(env, ctx, path).catch(e => console.error(e));
 
     switch (path) {
         case 'normal':
@@ -111,6 +98,45 @@ export async function handleSubscriptions(request: Request, env: Env, ctx: Execu
         default:
             return fallback(request);
     }
+}
+
+/**
+ * Lazy latency auto-test. Cheap KV gets only, and only for real subscription
+ * paths so a 404 fallback does not pay the cost. The re-arm timestamp is written
+ * BEFORE the sweep fires, so concurrent requests cannot stampede it.
+ *
+ * The sweep runs in `ctx.waitUntil`, i.e. after the response, by which point
+ * this isolate's module-level settings may belong to another request — so the
+ * target list is resolved here, while the settings are still ours.
+ */
+const SWEEP_PATHS = new Set(['normal', 'fragment', 'raw']);
+const MIN_SWEEP_INTERVAL_MIN = 10;
+
+async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string): Promise<void> {
+    if (!env?.kv || !SWEEP_PATHS.has(path)) return;
+
+    const { latencyAutoTest, latencyIntervalMin, mainDomain, customDomain } = getSettings();
+    if (!latencyAutoTest) return;
+
+    // Clamp: a hand-crafted settings PUT could otherwise set 0 and turn "due"
+    // permanently true, sweeping on every single subscription request.
+    const interval = Math.max(MIN_SWEEP_INTERVAL_MIN, Number(latencyIntervalMin) || MIN_SWEEP_INTERVAL_MIN);
+
+    const last = Number(await env.kv.get('latencySweepAt') ?? 0);
+    const due = !Number.isFinite(last) || last <= 0 || Date.now() - last >= interval * 60_000;
+    if (!due) return;
+
+    await env.kv.put('latencySweepAt', String(Date.now()));
+
+    const domains = [mainDomain].concat(customDomain ? [customDomain] : []);
+    const targets: string[] = [];
+    for (const domain of domains) {
+        if (!domain) continue;
+        const addrs = await getConfigAddresses(domain, false).catch(() => [] as string[]);
+        targets.push(...addrs);
+    }
+
+    ctx.waitUntil(sweepLatency(env, targets).catch(() => { }));
 }
 
 async function shareSettings() {

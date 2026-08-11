@@ -2,7 +2,7 @@ const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
 const nameTemplateTokens = [
     'FLAG', 'COUNTRY', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'LATENCY',
-    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'B', 'F', 'D', 'C', 'EGRESS_IP'
+    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'B', 'F', 'D', 'C', 'EGRESS_IP'
 ];
 const proxyForm = document.getElementById('configForm');
 const [
@@ -46,7 +46,9 @@ function initTemplateAutocomplete() {
         if (lastOpen === -1) return null;
         if (before.lastIndexOf('}') > lastOpen) return null;
         const fragment = before.slice(lastOpen + 1);
-        if (!/^[A-Za-z]*$/.test(fragment)) return null;
+        // Tokens are [A-Za-z0-9_] (EGRESS_IP has an underscore), so the partial
+        // fragment must allow the same characters or the list closes mid-token.
+        if (!/^[A-Za-z0-9_]*$/.test(fragment)) return null;
         return { start: lastOpen, fragment: fragment.toUpperCase() };
     };
 
@@ -79,6 +81,9 @@ function initTemplateAutocomplete() {
         }));
         openIndex = 0;
         list.hidden = false;
+        // Enter/Tab already commit children[0]; highlight it so the row that will
+        // be inserted is visible before the first arrow key.
+        highlight();
     };
 
     input.addEventListener('input', update);
