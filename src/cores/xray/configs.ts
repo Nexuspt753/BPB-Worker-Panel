@@ -148,7 +148,8 @@ async function addBestPingConfigs(
     isFragment: boolean,
     isCustomDomain: boolean,
     registry: NameRegistry,
-    env: Env
+    env: Env,
+    domain?: string
 ) {
     totalAddresses = [...new Set(totalAddresses)];
     const isChain = !!chainOutbounds.length;
@@ -166,6 +167,15 @@ async function addBestPingConfigs(
         chain: isChain,
         kind: 'Best Ping',
         core: 'xray',
+        domain,
+        identity: [
+            'best-ping',
+            isFragment ? 'fragment' : 'normal',
+            isCustomDomain ? 'custom-domain' : 'main-domain',
+            isChain ? 'chain' : 'direct',
+            domain ?? '',
+            ...totalAddresses.slice().sort()
+        ].join('|'),
         registry
     });
     const outbounds = [
@@ -176,7 +186,7 @@ async function addBestPingConfigs(
     const config = await buildConfig(remark, outbounds, true, isChain, true, false, false, totalAddresses);
 
     if (isChain) {
-        await addBestPingConfigs(configs, totalAddresses, proxyOutbounds, [], isFragment, isCustomDomain, registry, env);
+        await addBestPingConfigs(configs, totalAddresses, proxyOutbounds, [], isFragment, isCustomDomain, registry, env, domain);
     }
 
     configs.push(config);
@@ -370,7 +380,7 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
         }
 
         const isCustomDomain = domain === customDomain;
-        await addBestPingConfigs(configs, totalHosts, proxies, chains, isFragment, isCustomDomain, nameRegistry, env);
+        await addBestPingConfigs(configs, totalHosts, proxies, chains, isFragment, isCustomDomain, nameRegistry, env, domain);
     }
 
     if (isFragment) {
@@ -405,6 +415,7 @@ export async function getXrWarpConfigs(
     const chains: Outbound[] = [];
     const outboundDomains: string[] = [];
     const nameRegistry = createNameRegistry();
+    const stableWarpIdentity = [...warpEndpoints].sort().join('|');
 
     for (const [index, endpoint] of warpEndpoints.entries()) {
         const { host, port } = parseHostPort(endpoint);
@@ -480,27 +491,17 @@ export async function getXrWarpConfigs(
         chains.push(chain);
     }
 
-    const warpBestPingRemark = env
-        ? await getConfiguredNameWithMetadata(env, `💦 Warp${proIndicator}- Best Ping 🚀`, {
+    const warpBestPingContext = {
         index: 1,
         address: outboundDomains[0],
         marker: 'Warp',
         proto: 'Warp',
         kind: 'Warp Best Ping',
         core: 'xray',
+        identity: `warp-best:${isPro ? 'pro' : 'standard'}:${isKnocker ? 'knocker' : 'normal'}:${stableWarpIdentity}`,
         registry: nameRegistry
-    })
-        : getConfiguredName(`💦 Warp${proIndicator}- Best Ping 🚀`, {
-            index: 1,
-            address: outboundDomains[0],
-            marker: 'Warp',
-            proto: 'Warp',
-            kind: 'Warp Best Ping',
-            core: 'xray',
-            registry: nameRegistry
-        });
-    const wowBestPingRemark = env
-        ? await getConfiguredNameWithMetadata(env, `💦 WoW${proIndicator}- Best Ping 🚀`, {
+    };
+    const wowBestPingContext = {
         index: 1,
         address: outboundDomains[0],
         marker: 'WoW',
@@ -508,18 +509,15 @@ export async function getXrWarpConfigs(
         chain: true,
         kind: 'WoW Best Ping',
         core: 'xray',
+        identity: `wow-best:${isPro ? 'pro' : 'standard'}:${isKnocker ? 'knocker' : 'normal'}:${stableWarpIdentity}`,
         registry: nameRegistry
-    })
-        : getConfiguredName(`💦 WoW${proIndicator}- Best Ping 🚀`, {
-            index: 1,
-            address: outboundDomains[0],
-            marker: 'WoW',
-            proto: 'Warp',
-            chain: true,
-            kind: 'WoW Best Ping',
-            core: 'xray',
-            registry: nameRegistry
-        });
+    };
+    const warpBestPingRemark = env
+        ? await getConfiguredNameWithMetadata(env, `💦 Warp${proIndicator}- Best Ping 🚀`, warpBestPingContext)
+        : getConfiguredName(`💦 Warp${proIndicator}- Best Ping 🚀`, warpBestPingContext);
+    const wowBestPingRemark = env
+        ? await getConfiguredNameWithMetadata(env, `💦 WoW${proIndicator}- Best Ping 🚀`, wowBestPingContext)
+        : getConfiguredName(`💦 WoW${proIndicator}- Best Ping 🚀`, wowBestPingContext);
 
     const warpBestPing = await buildConfig(
         warpBestPingRemark,

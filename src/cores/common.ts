@@ -159,7 +159,14 @@ async function renameImportedConfigs(text: string, env: Env, nameRegistry: Retur
         if (!value) continue;
 
         try {
-            const url = new URL(value);
+            // Do not serialize the URI back through URL.href. VMess and
+            // Shadowsocks commonly store case-sensitive base64 in the authority;
+            // URL normalization lowercases that data and silently corrupts it.
+            // Keep the original URI bytes and replace only its display fragment.
+            const hashIndex = value.indexOf('#');
+            const uriWithoutHash = hashIndex === -1 ? value : value.slice(0, hashIndex);
+            const rawFragment = hashIndex === -1 ? '' : value.slice(hashIndex + 1);
+            const url = new URL(uriWithoutHash);
             if (!supportedProtocols.has(url.protocol)) continue;
 
             const host = url.hostname;
@@ -169,9 +176,9 @@ async function renameImportedConfigs(text: string, env: Env, nameRegistry: Retur
             const family = host.includes(':') ? 'IPv6' : isIPv4(host) ? 'IPv4' : isDomain(host) ? 'Domain' : '';
             let importedName = '';
             try {
-                importedName = decodeURIComponent(url.hash.slice(1));
+                importedName = decodeURIComponent(rawFragment);
             } catch {
-                importedName = url.hash.slice(1);
+                importedName = rawFragment;
             }
 
             const generated = await getConfiguredNameWithMetadata(env, importedName || `Imported ${index}`, {
@@ -187,11 +194,15 @@ async function renameImportedConfigs(text: string, env: Env, nameRegistry: Retur
                 security,
                 family,
                 domain: host,
+                // Imported URIs can share an endpoint while using different
+                // credentials. Keep the original URI (without its display
+                // hash) in the stable identity so reordering them does not
+                // rename either and case-sensitive payloads stay intact.
+                identity: uriWithoutHash,
                 registry: nameRegistry
             });
             index++;
-            url.hash = generated;
-            lines[lineIndex] = url.href;
+            lines[lineIndex] = `${uriWithoutHash}#${encodeURIComponent(generated)}`;
         } catch {
             // Keep unsupported or malformed imported lines byte-for-byte intact.
         }

@@ -2,7 +2,7 @@ import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
 import { resolveGeo, type GeoInfo } from './geo';
-import { renderName, uniquifyName, templateTokens, normalizeAddress as normalize, cleanIpHost, splitIpAndName, findAddressGroup, formatCacheAge, nameSnapshotKey, type NameContext, type NameRegistry } from './naming';
+import { renderName, uniquifyName, registerFallbackName, templateTokens, normalizeAddress as normalize, cleanIpHost, splitIpAndName, findAddressGroup, formatCacheAge, nameSnapshotKey, MIN_NAME_MAX_LENGTH, type NameContext, type NameRegistry } from './naming';
 import { getLatencyRecord } from './latency';
 
 // In-isolate cache for geo/latency lookups: the same address repeats across
@@ -15,6 +15,9 @@ const MEMO_TTL_MS = 60_000;
 const MEMO_MAX_ENTRIES = 500;
 interface Memo<T> { value: Promise<T>; at: number; }
 const memos = new Map<string, Memo<unknown>>();
+const GEO_METADATA_TOKENS = new Set([
+    'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE', 'F', 'C'
+]);
 
 function memoize<T>(key: string, resolver: () => Promise<T>): Promise<T> {
     const hit = memos.get(key);
@@ -105,15 +108,22 @@ export function getConfiguredName(fallback: string, context: NameContext): strin
 
     const nameContext: NameContext = {
         ...context,
+        brand: context.brand ?? _project_,
         group: context.group ?? findAddressGroup(context.address, nameAddressGroups)
     };
+    const mode: 'readable' | 'compact' | 'ascii' = nameFormat === 'compact' || nameFormat === 'ascii'
+        ? nameFormat
+        : 'readable';
+    const maxLength = Number.isInteger(nameMaxLength)
+        && (nameMaxLength === 0 || (nameMaxLength >= MIN_NAME_MAX_LENGTH && nameMaxLength <= 200))
+        ? nameMaxLength || undefined
+        : undefined;
+    const options = { mode, maxLength };
     const rendered = renderName(nameTemplate, nameContext);
-    if (!rendered.trim() || rendered.trim() === '--') return fallback;
+    if (!rendered.trim() || rendered.trim() === '--') return registerFallbackName(fallback, nameContext, options);
 
-    const mode = nameFormat === 'compact' || nameFormat === 'ascii' ? nameFormat : 'readable';
-    const maxLength = Number.isInteger(nameMaxLength) && nameMaxLength > 0 ? nameMaxLength : undefined;
-    const configured = uniquifyName(rendered, nameTemplate, nameContext, { mode, maxLength });
-    return configured || fallback;
+    const configured = uniquifyName(rendered, nameTemplate, nameContext, options);
+    return configured || registerFallbackName(fallback, nameContext, options);
 }
 
 export async function getConfiguredNameSnapshot(env: Env, fallback: string, context: NameContext): Promise<string> {
@@ -122,10 +132,14 @@ export async function getConfiguredNameSnapshot(env: Env, fallback: string, cont
 
     const nameContext: NameContext = {
         ...context,
+        brand: context.brand ?? _project_,
         group: context.group ?? findAddressGroup(context.address, settings.nameAddressGroups)
     };
+    // Latency is deliberately not part of the geo snapshot itself. Include the
+    // current measurement in the key so enabling frozen geo names does not also
+    // freeze an opt-in {LATENCY} value forever.
     const key = nameSnapshotKey(
-        `${settings.nameTemplate}|${settings.nameFormat}|${settings.nameMaxLength}`,
+        `${settings.nameTemplate}|${settings.nameFormat}|${settings.nameMaxLength}|latency:${nameContext.latency ?? ''}|latencyAge:${nameContext.latencyAge ?? ''}`,
         nameContext
     );
     try {
@@ -171,9 +185,10 @@ export async function getConfiguredNameWithMetadata(
         : null;
 
     const needsGeo = [
-        'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE',
-        'GEO_AGE', 'F', 'C', 'EGRESS_IP'
+        ...GEO_METADATA_TOKENS,
+        'EGRESS_IP'
     ].some(token => tokens.has(token));
+    const needsGeoMetadata = [...GEO_METADATA_TOKENS].some(token => tokens.has(token));
     const geoMode = settings.nameFreezeGeo || settings.nameGeoMode === 'local'
         ? 'local'
         : settings.nameGeoMode === 'disabled' ? 'disabled' : 'auto';
@@ -191,13 +206,23 @@ export async function getConfiguredNameWithMetadata(
         }
     }
 
-    return getConfiguredNameSnapshot(env, fallback, {
+    const nameContext = {
         ...context,
         geo,
         latency: context.latency ?? (latencyRecord?.ms != null ? String(latencyRecord.ms) : undefined),
         latencyAge: context.latencyAge ?? formatCacheAge(latencyRecord?.measuredAt),
         egressIp: context.egressIp ?? geo?.ip ?? dialGeo?.ip ?? (context.address ? normalize(context.address) : undefined)
-    });
+    };
+
+    // Do not permanently snapshot a fallback or an omitted optional geo section
+    // just because cached-only mode had no data on the first request. A later
+    // explicit regenerate should not be required merely because the provider or
+    // cache was cold when the user enabled the feature.
+    if (settings.nameFreezeGeo && needsGeoMetadata && !geo) {
+        return getConfiguredName(fallback, nameContext);
+    }
+
+    return getConfiguredNameSnapshot(env, fallback, nameContext);
 }
 
 export async function generateRemark(
@@ -263,9 +288,10 @@ export async function generateRemark(
             : null;
 
         const needsGeo = [
-            'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE',
-            'GEO_AGE', 'F', 'C', 'EGRESS_IP'
+            ...GEO_METADATA_TOKENS,
+            'EGRESS_IP'
         ].some(token => tokens.has(token));
+        const needsGeoMetadata = [...GEO_METADATA_TOKENS].some(token => tokens.has(token));
         // Freeze mode deliberately uses the last cached geo value and never
         // replaces a name because a provider returned newer geography.
         const geoMode = nameFreezeGeo || nameGeoMode === 'local'
@@ -323,8 +349,16 @@ export async function generateRemark(
         // If rendering yields nothing meaningful, keep today's output.
         const rendered = renderName(nameTemplate, nameCtx);
         if (rendered.trim() && rendered.trim() !== '--') {
+            if (nameFreezeGeo && needsGeoMetadata && !egressGeo) {
+                return getConfiguredName(fallback, nameCtx);
+            }
             return getConfiguredNameSnapshot(env, fallback, nameCtx);
         }
+
+        // A valid template may contain only unavailable optional values. Route
+        // that case through the normal fallback path so it is formatted,
+        // bounded, and registered just like every other generated name.
+        return getConfiguredName(fallback, nameCtx);
     }
 
     return fallback;

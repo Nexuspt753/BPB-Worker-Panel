@@ -4,7 +4,7 @@ import { fetchWarpAccounts } from '@api/warp';
 import { safeError } from '@common';
 import { getKvSettings } from '@settings';
 import { setCustomDomain } from '@main';
-import { NAME_TEMPLATE_VERSION, migrateNameTemplate } from '@cores/naming';
+import { MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_VERSION, migrateNameTemplate } from '@cores/naming';
 
 export async function getDataset(env: Env): Promise<{
     settings: KvSettings,
@@ -15,9 +15,11 @@ export async function getDataset(env: Env): Promise<{
     const kvSettings = getKvSettings();
 
     try {
-        settings = await env.kv.get('proxySettings', { type: 'json' });
+        const rawSettings = await env.kv.get('proxySettings', { type: 'json' });
         warpAccounts = await env.kv.get('warpAccounts', { type: 'json' });
-        const storedSettings = settings;
+        const storedSettings = rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)
+            ? rawSettings as Partial<KvSettings>
+            : null;
         settings = normalizeSettings(storedSettings, kvSettings);
 
         // Add newly introduced naming fields and migrate older token casing once.
@@ -29,7 +31,9 @@ export async function getDataset(env: Env): Promise<{
             || !('nameMaxLength' in storedSettings)
             || !('nameGeoMode' in storedSettings)
             || !('nameFreezeGeo' in storedSettings)
-            || !('nameAddressGroups' in storedSettings)) {
+            || !('nameAddressGroups' in storedSettings)
+            || !('latencyAutoTest' in storedSettings)
+            || !('latencyIntervalMin' in storedSettings)) {
             await env.kv.put('proxySettings', JSON.stringify(settings));
         }
 
@@ -190,11 +194,17 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
             })
         );
 
+        const incomingTemplate = newSettings.nameTemplate;
+        const templateVersion = incomingTemplate !== undefined
+            // Imported settings from before the version field existed must be
+            // treated as version 1 even when the current KV is already newer.
+            ? Number(newSettings.nameTemplateVersion ?? 1)
+            : Number(currentSettings?.nameTemplateVersion ?? kvSettings.nameTemplateVersion ?? 1);
         const updatedSettings: KvSettings = {
             ...Object.fromEntries(entries),
             nameTemplate: migrateNameTemplate(
-                newSettings.nameTemplate ?? currentSettings?.nameTemplate ?? kvSettings.nameTemplate,
-                Number(newSettings.nameTemplateVersion ?? currentSettings?.nameTemplateVersion ?? 1)
+                incomingTemplate ?? currentSettings?.nameTemplate ?? kvSettings.nameTemplate,
+                templateVersion
             ),
             nameTemplateVersion: NAME_TEMPLATE_VERSION,
             panelVersion: VERSION
@@ -217,11 +227,19 @@ function normalizeSettings(stored: Partial<KvSettings> | null, defaults: KvSetti
         nameTemplate: migrateNameTemplate(source.nameTemplate ?? defaults.nameTemplate, version),
         nameTemplateVersion: NAME_TEMPLATE_VERSION,
         nameFormat: source.nameFormat ?? defaults.nameFormat,
-        nameMaxLength: source.nameMaxLength ?? defaults.nameMaxLength,
+        nameMaxLength: normalizeNameMaxLength(source.nameMaxLength, defaults.nameMaxLength),
         nameGeoMode: source.nameGeoMode ?? defaults.nameGeoMode,
         nameFreezeGeo: source.nameFreezeGeo === true,
         nameAddressGroups: Array.isArray(source.nameAddressGroups) ? source.nameAddressGroups : defaults.nameAddressGroups
     } as KvSettings;
+}
+
+function normalizeNameMaxLength(value: unknown, fallback: number): number {
+    const length = Number(value);
+    return Number.isInteger(length)
+        && (length === 0 || (length >= MIN_NAME_MAX_LENGTH && length <= 200))
+        ? length
+        : fallback;
 }
 
 async function getDnsParams(dns: string): Promise<DnsHost> {

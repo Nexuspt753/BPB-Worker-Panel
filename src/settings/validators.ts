@@ -2,7 +2,7 @@ import { PanelSettings } from '#types/settings';
 import { isBase64, isDomain, isHex, isIPv4, isIPv4CIDR, isIPv6, isIPv6CIDR, isValidUrl } from '@utils';
 import { isValidUUID } from '@common';
 import { getGlobals } from '@settings';
-import { getNameTemplateDiagnostics, isValidNameTemplate, NAME_TEMPLATE_TOKENS, parseAddressGroups, splitIpAndName, templateTokens } from '@cores/naming';
+import { getNameTemplateDiagnostics, isValidNameTemplate, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS, parseAddressGroups, splitIpAndName, templateTokens } from '@cores/naming';
 
 export interface ValidationError {
     field: string;
@@ -267,10 +267,11 @@ function validateNameOptions(form: PanelSettings, errors: ValidationError[]) {
     }
 
     const maxLength = Number(nameMaxLength);
-    if (!Number.isInteger(maxLength) || maxLength < 0 || maxLength > 200) {
+    if (!Number.isInteger(maxLength)
+        || (maxLength !== 0 && (maxLength < MIN_NAME_MAX_LENGTH || maxLength > 200))) {
         errors.push({
             field: 'Config Name Length',
-            message: ['Use 0 for unlimited or a whole number between 1 and 200.']
+            message: [`Use 0 for unlimited or a whole number between ${MIN_NAME_MAX_LENGTH} and 200.`]
         });
     }
 
@@ -290,7 +291,8 @@ function validateNameAddressGroups(form: PanelSettings, errors: ValidationError[
     entries.forEach(entry => {
         String(entry ?? '').split(/\r?\n/u).map(line => line.trim()).filter(Boolean).forEach(line => {
             if (/^.+?:\s*$/u.test(line)) return;
-            const separator = line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
+            const isEndpointLine = /^\[[^\]]+\]:\d+$/u.test(line) || /^[^:]+:\d+$/u.test(line);
+            const separator = isEndpointLine ? null : line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
             const addresses = separator ? separator[2] : line;
             addresses.split(/\s*,\s*/u).map(value => value.trim()).filter(Boolean).forEach(address => {
                 if (!isValidHost(address) && !isValidHost(address, true)) invalids.push(address);

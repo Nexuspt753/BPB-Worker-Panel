@@ -187,7 +187,7 @@ function renderPreviewTemplate(template, context) {
     source = source.replace(/\{([A-Za-z0-9_]+)\}/g, (_match, token) => {
         const value = previewTokenValue(token.toUpperCase(), context);
         if (value === undefined || value === null || value === '') {
-            return ['MARKER', 'CHAIN'].includes(token.toUpperCase()) ? '' : '--';
+            return ['MARKER', 'CHAIN', 'GROUP'].includes(token.toUpperCase()) ? '' : '--';
         }
         return String(value);
     });
@@ -199,7 +199,21 @@ function previewGraphemes(value) {
     if (Intl.Segmenter) {
         return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(item => item.segment);
     }
-    return Array.from(value);
+
+    const result = [];
+    for (const char of Array.from(value)) {
+        const previous = result[result.length - 1];
+        const isJoiner = char === '\u200d';
+        const isExtend = /[\u0300-\u036f\uFE00-\uFE0F\u{1F3FB}-\u{1F3FF}]/u.test(char);
+        if (previous && (previous.endsWith('\u200d') || isJoiner || isExtend)) {
+            result[result.length - 1] += char;
+        } else if (previous && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(previous) && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(char)) {
+            result[result.length - 1] += char;
+        } else {
+            result.push(char);
+        }
+    }
+    return result;
 }
 
 function truncatePreviewName(value, maxLength) {
@@ -221,12 +235,18 @@ function formatPreviewName(value, mode, maxLength) {
     return truncatePreviewName(result, Number.isInteger(limit) && limit > 0 ? limit : undefined);
 }
 
-function stablePreviewSuffix(context) {
-    const source = [
+function previewNormalizeAddress(address) {
+    const value = String(address || '').trim();
+    const bare = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
+    return bare.toLowerCase();
+}
+
+function previewStableNameKey(context) {
+    return context.identity || [
         context.kind,
         context.core,
         context.proto,
-        context.address,
+        previewNormalizeAddress(context.address),
         context.port,
         context.domain,
         context.marker,
@@ -236,12 +256,28 @@ function stablePreviewSuffix(context) {
         context.customName,
         context.group
     ].map(value => String(value ?? '')).join('|');
+}
+
+function previewHash(source) {
     let hash = 0x811c9dc5;
     for (const char of source) {
         hash ^= char.codePointAt(0) || 0;
         hash = Math.imul(hash, 0x01000193);
     }
-    return `~${(hash >>> 0).toString(16).padStart(8, '0')}`;
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function stablePreviewSuffix(context) {
+    return `~${previewHash(previewStableNameKey(context))}`;
+}
+
+function previewShortIdentityName(context, maxLength, collision = 0) {
+    const seed = collision > 0
+        ? `${previewStableNameKey(context)}|collision:${collision}`
+        : previewStableNameKey(context);
+    const hash = previewHash(seed);
+    const value = maxLength === 1 ? hash : `~${hash}`;
+    return truncatePreviewName(value, maxLength);
 }
 
 function previewUniqueName(rendered, template, context, mode, maxLength, registry = new Set()) {
@@ -254,6 +290,13 @@ function previewUniqueName(rendered, template, context, mode, maxLength, registr
     if (context.chain && !tokens.has('CHAIN')) missing.push('chain');
     if (context.marker && !tokens.has('MARKER')) missing.push('marker');
     if (context.kind && !tokens.has('KIND')) missing.push('kind');
+    if (context.core && !tokens.has('CORE')) missing.push('core');
+    if (context.transport && !tokens.has('TRANSPORT')) missing.push('transport');
+    if (context.security && !tokens.has('SECURITY')) missing.push('security');
+    if (context.customName && !tokens.has('IPNAME')) missing.push('custom-name');
+    if (context.group && !tokens.has('GROUP')) missing.push('group');
+    if (context.identity) missing.push('identity');
+
     const suffix = [];
     if (missing.includes('chain')) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
     if (missing.includes('marker') && context.marker) suffix.push(context.marker.trim());
@@ -262,21 +305,29 @@ function previewUniqueName(rendered, template, context, mode, maxLength, registr
     if (missing.length) suffix.push(stablePreviewSuffix(context));
 
     const base = formatPreviewName(rendered, mode, 0);
-    const suffixText = formatPreviewName(suffix.join(' '), mode, 0);
-    const separator = base && suffixText ? ' ' : '';
     const limit = Number(maxLength);
-    const available = Number.isInteger(limit) && limit > 0
-        ? Math.max(1, limit - previewGraphemes(`${separator}${suffixText}`).length)
-        : undefined;
-    let candidate = formatPreviewName(`${truncatePreviewName(base, available)}${separator}${suffixText}`, mode, maxLength);
+    const validLimit = Number.isInteger(limit) && limit > 0 ? limit : undefined;
+    const compose = (suffixValue, collision = 0) => {
+        const suffixText = formatPreviewName(suffixValue, mode, 0);
+        if (validLimit && suffixText) {
+            const suffixLength = previewGraphemes(suffixText).length;
+            if (suffixLength >= validLimit) {
+                return formatPreviewName(previewShortIdentityName(context, validLimit, collision), mode, validLimit);
+            }
+            const separator = base ? ' ' : '';
+            const available = validLimit - suffixLength - (separator ? 1 : 0);
+            const prefix = available > 0 ? truncatePreviewName(base, available) : '';
+            return formatPreviewName(`${prefix}${separator}${suffixText}`, mode, validLimit);
+        }
+        const composed = suffixText ? `${base}${base ? ' ' : ''}${suffixText}` : base;
+        return formatPreviewName(composed, mode, validLimit);
+    };
+
+    let candidate = compose(suffix.join(' '));
     let collision = 1;
-    while (registry.has(candidate)) {
+    while (registry.has(candidate) && collision < 4096) {
         collision++;
-        const collisionSuffix = `${stablePreviewSuffix(context)}-${collision}`;
-        const collisionLimit = Number.isInteger(limit) && limit > 0
-            ? Math.max(1, limit - previewGraphemes(` ${collisionSuffix}`).length)
-            : undefined;
-        candidate = formatPreviewName(`${truncatePreviewName(base, collisionLimit)} ${collisionSuffix}`, mode, maxLength);
+        candidate = compose(`${stablePreviewSuffix(context)}-${collision}`, collision);
     }
     registry.add(candidate);
     return candidate;
@@ -286,27 +337,27 @@ const templatePreviewContexts = [
     {
         label: 'Frankfurt / VLESS', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
         city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '42', latencyAge: '4m',
-        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal'
+        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal', identity: 'normal|xray|vless|1.1.1.1|443|example.com'
     },
     {
         label: 'Frankfurt / Trojan', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
         city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '38', latencyAge: '4m',
-        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'Trojan', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal'
+        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'Trojan', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal', identity: 'normal|sing-box|trojan|1.1.1.1|443|example.com'
     },
     {
         label: 'Named clean IP', index: 2, address: '2.2.2.2', port: 8443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
         city: 'Frankfurt', region: 'Hesse', isp: 'Example CDN', asn: 'AS64500', type: 'Hosting', geoAge: '1d', latency: '61', latencyAge: '18m',
-        customName: 'Fast edge', group: 'Cloudflare Fast', marker: 'C', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal'
+        customName: 'Fast edge', group: 'Cloudflare Fast', marker: 'C', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal', identity: 'normal|clash|vless|2.2.2.2|8443|example.com'
     },
     {
         label: 'Fragment chain', index: 3, address: 'example.com', port: 443, flag: '🇺🇸', country: 'United States', countryCode: 'US',
         city: 'Ashburn', region: 'Virginia', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '3h', latency: '', latencyAge: '',
-        customName: '', marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain'
+        customName: '', marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain', identity: 'chain|xray|vless|example.com|443|example.com'
     },
     {
         label: 'Warp endpoint', index: 4, address: '162.159.192.1', port: 2408, flag: '🇺🇸', country: 'United States', countryCode: 'US',
         city: 'Seattle', region: 'Washington', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '5h', latency: '77', latencyAge: '1h',
-        customName: '', marker: 'Warp', proto: 'Warp', chain: false, egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', sni: '', host: '', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp'
+        customName: '', marker: 'Warp', proto: 'Warp', chain: false, egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', sni: '', host: '', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp', identity: 'warp|wireguard|162.159.192.1|2408'
     }
 ];
 
@@ -371,7 +422,12 @@ function renderLocalNamePreviewFallback(template, mode, maxLength) {
         renderNamePreviewResult({ diagnostics: [{ message: 'Invalid template syntax.', start: 0, end: template.length }], rows: [], collisions: [] });
         return;
     }
-    const registry = new Set();
+    const registry = new Set([
+        '✅ Selector', 'direct', 'dns-remote', 'dns-direct', 'dns-anti-sanction', 'dns-fake', 'hosts', 'tun-in', 'mixed-in',
+        '💦 Best Ping 🚀', '💦 🔗 Best Ping 🚀', '💦 Best Ping D 🚀', '💦 🔗 Best Ping D 🚀',
+        '💦 Warp - Best Ping 🚀', '💦 WoW - Best Ping 🚀',
+        '💦 Warp Pro - Best Ping 🚀', '💦 WoW Pro - Best Ping 🚀'
+    ]);
     const rows = templatePreviewContexts.map((context, index) => ({
         label: context.label,
         rawName: formatPreviewName(rawNames[index], mode, maxLength),
@@ -384,10 +440,20 @@ function updateNameTemplatePreview() {
     const input = document.getElementById('nameTemplate');
     if (!input) return;
     clearTimeout(namePreviewTimer);
+    // Invalidate an already-running request immediately. Otherwise a request
+    // for an older template can finish after the user clears the field and
+    // repaint a preview that no longer matches the form.
+    const requestId = ++namePreviewRequest;
     namePreviewTimer = setTimeout(async () => {
         const template = input.value.trim();
         const mode = document.getElementById('nameFormat')?.value || 'readable';
-        const maxLength = document.getElementById('nameMaxLength')?.value || 0;
+        const requestedLength = Number(document.getElementById('nameMaxLength')?.value || 0);
+        // Keep the local fallback aligned with backend validation: a non-zero
+        // limit shorter than the fingerprint cannot preserve uniqueness.
+        const maxLength = Number.isInteger(requestedLength)
+            && (requestedLength === 0 || requestedLength >= 8)
+            ? requestedLength
+            : 0;
         if (!template) {
             renderNamePreviewResult({ diagnostics: [], rows: [], collisions: [] });
             document.getElementById('nameTemplatePreview').textContent = 'Set a template to preview generated names.';
@@ -395,7 +461,6 @@ function updateNameTemplatePreview() {
             return;
         }
 
-        const requestId = ++namePreviewRequest;
         try {
             const response = await fetch('./panel/name-preview', {
                 method: 'POST',

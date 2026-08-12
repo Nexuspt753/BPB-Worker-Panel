@@ -8,6 +8,9 @@ import { buildMixedInbound, tun } from './inbounds';
 import { buildDNS } from './dns';
 
 type TagGroup = Record<string, string[]>;
+const FIXED_TAGS = [
+    '✅ Selector', 'direct', 'dns-remote', 'dns-direct', 'dns-anti-sanction', 'dns-fake', 'hosts', 'tun-in', 'mixed-in'
+];
 
 async function buildConfig(
     outbounds: Outbound[],
@@ -106,6 +109,10 @@ export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<
         '💦 Best Ping D 🚀': [],
         '💦 🔗 Best Ping D 🚀': [],
     };
+    // Reserve fixed sing-box tags so generated outbounds cannot collide with
+    // DNS, inbound, selector, direct-route, or URL-test identifiers.
+    FIXED_TAGS.forEach(name => nameRegistry.names.add(name));
+    Object.keys(tagGroup).forEach(name => nameRegistry.names.add(name));
 
     for (const domain of domains) {
         const totalPorts = ports.filter(port => !isFragment && domain.endsWith('workers.dev') || isHttps(port));
@@ -182,6 +189,9 @@ export async function getSbWarpConfig(env?: Env): Promise<Response> {
         '💦 Warp - Best Ping 🚀': [],
         '💦 WoW - Best Ping 🚀': []
     };
+    nameRegistry.names.add('✅ Selector');
+    nameRegistry.names.add('direct');
+    Object.keys(tagGroup).forEach(name => nameRegistry.names.add(name));
 
     for (const [index, endpoint] of warpEndpoints.entries()) {
         const { host, port } = parseHostPort(endpoint);

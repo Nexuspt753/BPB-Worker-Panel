@@ -8,7 +8,8 @@ import { getWireguardConfigs } from '@cores/wireguard';
 import { HttpStatus } from '@common';
 import { SharedSettings } from '#types/settings';
 import { sweepLatency } from '@cores/latency';
-import { getConfigAddresses } from '@cores/utils';
+import { cleanIpHost } from '@cores/naming';
+import { parseHostPort, resolveDNS } from '@cores/utils';
 
 export async function handleSubscriptions(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await setSettings(env);
@@ -109,14 +110,24 @@ export async function handleSubscriptions(request: Request, env: Env, ctx: Execu
  * this isolate's module-level settings may belong to another request — so the
  * target list is resolved here, while the settings are still ours.
  */
-const SWEEP_PATHS = new Set(['normal', 'fragment', 'raw']);
+const SWEEP_PATHS = new Set(['normal', 'fragment', 'raw', 'warp', 'warp-pro']);
 const MIN_SWEEP_INTERVAL_MIN = 10;
 let sweepClaimUntil = 0;
 
 async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string): Promise<void> {
     if (!env?.kv || !SWEEP_PATHS.has(path)) return;
 
-    const { latencyAutoTest, latencyIntervalMin, mainDomain, customDomain } = getSettings();
+    const {
+        latencyAutoTest,
+        latencyIntervalMin,
+        mainDomain,
+        customDomain,
+        warpEndpoints,
+        enableIPv6,
+        cleanIPs,
+        customCdnAddrs,
+        upstreamParams: { upstreamServer }
+    } = getSettings();
     if (latencyAutoTest !== true) return;
 
     // Clamp: a hand-crafted settings PUT could otherwise set 0 and turn "due"
@@ -126,7 +137,13 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
     const now = Date.now();
     if (sweepClaimUntil > now) return;
 
-    const last = Number(await env.kv.get('latencySweepAt') ?? 0);
+    let last: number;
+    try {
+        last = Number(await env.kv.get('latencySweepAt') ?? 0);
+    } catch (error) {
+        console.error(error);
+        return;
+    }
     const due = !Number.isFinite(last) || last <= 0 || now - last >= interval * 60_000;
     if (!due) return;
 
@@ -134,17 +151,38 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
     // prevents concurrent requests in the same isolate from starting duplicate
     // sweeps; the KV timestamp still throttles separate isolates.
     sweepClaimUntil = now + interval * 60_000;
-    await env.kv.put('latencySweepAt', String(now));
-
-    const domains = [mainDomain].concat(customDomain ? [customDomain] : []);
-    const targets: string[] = [];
-    for (const domain of domains) {
-        if (!domain) continue;
-        const addrs = await getConfigAddresses(domain, false).catch(() => [] as string[]);
-        targets.push(...addrs);
+    try {
+        await env.kv.put('latencySweepAt', String(now));
+    } catch (error) {
+        // The sweep is optional. Keep the in-memory claim and continue so a KV
+        // write outage cannot turn a subscription request into an error.
+        console.error(error);
     }
 
-    ctx.waitUntil(sweepLatency(env, targets).catch(() => { }));
+    // Resolve DNS and collect targets inside waitUntil. The old implementation
+    // did this before returning the subscription, so a slow DoH provider could
+    // make an otherwise unrelated config download feel broken.
+    ctx.waitUntil((async () => {
+        const targets: string[] = [];
+        if (path === 'warp' || path === 'warp-pro') {
+            targets.push(...(warpEndpoints ?? []).map(endpoint => parseHostPort(endpoint).host).filter(Boolean));
+        } else {
+            const domains = [mainDomain].concat(customDomain ? [customDomain] : []);
+            if (upstreamServer) targets.push(upstreamServer);
+            for (const domain of domains) {
+                if (!domain) continue;
+                const { ipv4, ipv6 } = await resolveDNS(domain, !enableIPv6).catch(() => ({ ipv4: [], ipv6: [] }));
+                targets.push(
+                    domain,
+                    ...ipv4,
+                    ...(enableIPv6 ? ipv6.map(ip => `[${ip}]`) : []),
+                    ...cleanIPs.map(cleanIpHost),
+                    ...(path === 'fragment' ? [] : customCdnAddrs)
+                );
+            }
+        }
+        await sweepLatency(env, targets);
+    })().catch(() => { }));
 }
 
 async function shareSettings() {

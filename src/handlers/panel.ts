@@ -11,7 +11,7 @@ import { getGlobals, getMainSettings, subscriptions, clients } from '@settings';
 import { validateSettings } from '@validators';
 import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
-import { buildNamePreview } from '@cores/naming';
+import { buildNamePreview, MIN_NAME_MAX_LENGTH } from '@cores/naming';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -151,8 +151,10 @@ async function previewNames(request: Request, env: Env): Promise<Response> {
     try {
         const body = await request.json() as { template?: unknown; mode?: unknown; maxLength?: unknown };
         const mode = body.mode === 'compact' || body.mode === 'ascii' ? body.mode : 'readable';
-        const maxLength = Number.isInteger(Number(body.maxLength)) && Number(body.maxLength) > 0
-            ? Math.min(200, Number(body.maxLength))
+        const requestedLength = Number(body.maxLength);
+        const maxLength = Number.isInteger(requestedLength)
+            && requestedLength >= MIN_NAME_MAX_LENGTH
+            ? Math.min(200, requestedLength)
             : undefined;
         return respond(true, HttpStatus.OK, '', buildNamePreview(String(body.template ?? ''), { mode, maxLength }));
     } catch (error) {
@@ -170,15 +172,15 @@ async function regenerateNameSnapshots(request: Request, env: Env): Promise<Resp
 
     try {
         let cursor: string | undefined;
-        let count = 0;
+        const names: string[] = [];
         do {
             const listed = await env.kv.list({ prefix: 'nameSnapshot:', ...(cursor ? { cursor } : {}) });
-            count += listed.keys.length;
-            await Promise.all(listed.keys.map(key => env.kv.delete(key.name)));
+            names.push(...listed.keys.map(key => key.name));
             cursor = listed.list_complete ? undefined : listed.cursor || undefined;
         } while (cursor);
 
-        return respond(true, HttpStatus.OK, 'Frozen config names will be regenerated on the next subscription fetch.', { count });
+        await Promise.all(names.map(name => env.kv.delete(name)));
+        return respond(true, HttpStatus.OK, 'Frozen config names will be regenerated on the next subscription fetch.', { count: names.length });
     } catch (error) {
         return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
     }

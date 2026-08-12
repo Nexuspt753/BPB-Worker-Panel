@@ -103,7 +103,7 @@ When a template omits an identity dimension such as the address, protocol, port,
 
 The fingerprint is derived from the config identity rather than list order. Reordering addresses does not rename them. If two genuinely identical rendered names still occur, the later one receives a deterministic `-2`, `-3`, and so on suffix within that output.
 
-Maximum length is applied after reserving space for the uniqueness suffix, so truncation does not remove the part that distinguishes configs.
+Maximum length is applied after reserving space for the uniqueness suffix, so truncation does not remove the part that distinguishes configs. Fixed selector, DNS, inbound, and URL-test identifiers are reserved so a custom name cannot shadow a client-core identifier.
 
 ## Address groups
 
@@ -126,7 +126,7 @@ Then use `{GROUP}` in a template:
 {GROUP} - {IP}
 ```
 
-IPv6 brackets are normalized for matching. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
+IPv6 brackets are normalized for matching, and an optional port is ignored when matching a host. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
 
 ## Geo and egress behavior
 
@@ -144,7 +144,7 @@ Use **Regenerate frozen names** to clear snapshots and let the next subscription
 
 Enable **Auto-test config IPs latency** to populate `{LATENCY}` and `{LATENCY_AGE}`. The interval is 10–1440 minutes. Measurements are made from the Worker, not from the user's device, and are intended for relative ranking.
 
-The sweep is bounded to a small concurrency, deduplicates addresses, times out probes, and stores only healthy Cloudflare-edge responses. It runs after a subscription response and never makes a failed probe or KV write fail the subscription. When auto-testing is disabled, cached latency is not rendered as a current `{LATENCY}` value.
+The sweep is bounded to a small concurrency, deduplicates addresses, includes configured upstream targets, times out probes, and stores only healthy Cloudflare-edge responses. It runs after a subscription response and never makes a failed probe or KV write fail the subscription. When auto-testing is disabled, cached latency is not rendered as a current `{LATENCY}` value.
 
 The Proxy IP page's manual health test is separate and does not populate this token.
 
@@ -153,7 +153,7 @@ The Proxy IP page's manual health test is separate and does not populate this to
 - **Readable** collapses repeated whitespace and preserves Unicode.
 - **Compact** removes unnecessary spacing around `|` and `·` and tightens separator spacing.
 - **ASCII-safe** removes accents and non-ASCII symbols for clients with strict name handling.
-- **Maximum name length** accepts `0` for unlimited or a whole number up to 200. Truncation is Unicode/grapheme-safe.
+- **Maximum name length** accepts `0` for unlimited or a whole number from 8 to 200. Limits below 8 cannot preserve the uniqueness fingerprint and are rejected. Truncation is Unicode/grapheme-safe.
 
 Geo privacy has three modes:
 
@@ -167,4 +167,4 @@ Geo privacy has three modes:
 
 The saved `nameTemplateVersion` is migrated when older settings are loaded. Current migrations canonicalize token spelling without rewriting surrounding user text. Invalid imported settings are rejected by the same parser used by the panel.
 
-If a template is empty, malformed, or renders no meaningful value for a config, BPB falls back to that config type's classic name instead of emitting an empty client entry. Unknown external config formats are never rewritten.
+If a template is empty, malformed, or renders no meaningful value for a config, BPB falls back to that config type's classic name instead of emitting an empty client entry. When multiple logical configs share that fallback, a stable identity suffix may be added to keep client identifiers unique. Unknown external config formats are never rewritten.

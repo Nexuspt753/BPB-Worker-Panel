@@ -1,6 +1,10 @@
 import type { GeoInfo } from './geo';
 
 export const NAME_TEMPLATE_VERSION = 3;
+// A shorter limit cannot retain the uniqueness fingerprint for realistic
+// subscriptions (for example, one character can represent only 16 hex values).
+// Keep the setting beginner-safe while still allowing genuinely compact names.
+export const MIN_NAME_MAX_LENGTH = 8;
 export const NAME_TEMPLATE_TOKENS = [
     'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE',
     'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
@@ -13,6 +17,17 @@ export type NameFormat = 'readable' | 'compact' | 'ascii';
 export interface NameRegistry {
     names: Set<string>;
 }
+
+// Names reserved by the generated client-core scaffolding. The concrete output
+// builders reserve the subset they emit; the preview reserves the union so it
+// never tells a beginner that a name is safe when it could shadow an internal
+// selector, DNS, inbound, or URL-test identifier.
+export const RESERVED_NAME_IDENTIFIERS = [
+    '✅ Selector', 'direct', 'dns-remote', 'dns-direct', 'dns-anti-sanction', 'dns-fake', 'hosts', 'tun-in', 'mixed-in',
+    '💦 Best Ping 🚀', '💦 🔗 Best Ping 🚀', '💦 Best Ping D 🚀', '💦 🔗 Best Ping D 🚀',
+    '💦 Warp - Best Ping 🚀', '💦 WoW - Best Ping 🚀',
+    '💦 Warp Pro - Best Ping 🚀', '💦 WoW Pro - Best Ping 🚀'
+] as const;
 
 export interface NameFormatOptions {
     mode?: NameFormat;
@@ -50,6 +65,18 @@ export function cleanIpHost(entry: string): string {
  * `Fast: 1.1.1.1, 1.0.0.1`. The returned keys use the same normalized address
  * form as Clean IP and geo caches.
  */
+function normalizeGroupAddress(address: string): string {
+    const value = String(address ?? '').trim();
+    const bracketed = value.match(/^\[([^\]]+)\](?::\d+)?$/u);
+    if (bracketed) return normalizeAddress(`[${bracketed[1]}]`);
+
+    // Address groups are keyed by host, while a user may naturally paste an
+    // endpoint with a port. Ignore that port so `{GROUP}` still matches the
+    // host stored in a generated config.
+    const hostPort = value.match(/^([^:]+):\d+$/u);
+    return normalizeAddress(hostPort ? hostPort[1] : value);
+}
+
 export function parseAddressGroups(entries: readonly string[] = []): Map<string, string> {
     const groups = new Map<string, string>();
     let activeGroup = '';
@@ -67,7 +94,8 @@ export function parseAddressGroups(entries: readonly string[] = []): Map<string,
 
             let group = activeGroup;
             let addresses = line;
-            const inline = line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
+            const isEndpointLine = /^\[[^\]]+\]:\d+$/u.test(line) || /^[^:]+:\d+$/u.test(line);
+            const inline = isEndpointLine ? null : line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
             if (inline && (inline[2].includes('.') || inline[2].includes('[') || /^[a-z0-9.-]+(?::\\d+)?$/iu.test(inline[2]))) {
                 group = inline[1].trim();
                 addresses = inline[2].trim();
@@ -75,7 +103,7 @@ export function parseAddressGroups(entries: readonly string[] = []): Map<string,
             }
 
             if (!group) continue;
-            addresses.split(/\s*,\s*/u).map(address => normalizeAddress(address)).filter(Boolean).forEach(address => {
+            addresses.split(/\s*,\s*/u).map(address => normalizeGroupAddress(address)).filter(Boolean).forEach(address => {
                 groups.set(address, group);
             });
         }
@@ -86,7 +114,7 @@ export function parseAddressGroups(entries: readonly string[] = []): Map<string,
 
 export function findAddressGroup(address: string | undefined, entries: readonly string[] = []): string | undefined {
     if (!address) return undefined;
-    return parseAddressGroups(entries).get(normalizeAddress(address));
+    return parseAddressGroups(entries).get(normalizeGroupAddress(address));
 }
 
 /**
@@ -95,9 +123,12 @@ export function findAddressGroup(address: string | undefined, entries: readonly 
  */
 export function normalizeAddress(address: string): string {
     const trimmed = (address || '').trim();
-    return trimmed.startsWith('[') && trimmed.endsWith(']')
+    const bare = trimmed.startsWith('[') && trimmed.endsWith(']')
         ? trimmed.slice(1, -1)
         : trimmed;
+    // DNS names are case-insensitive, and IPv6 hex digits are equivalent in
+    // either case. This keeps geo, latency, group, and identity keys aligned.
+    return bare.toLowerCase();
 }
 
 export interface NameContext {
@@ -275,7 +306,9 @@ export function getNameTemplateDiagnostics(template: unknown): NameTemplateDiagn
 }
 
 export function isValidNameTemplate(template: unknown): template is string {
-    return typeof template === 'string' && parseTemplate(template) !== null;
+    return typeof template === 'string'
+        && parseTemplate(template) !== null
+        && getNameTemplateDiagnostics(template).length === 0;
 }
 
 /**
@@ -320,7 +353,7 @@ function rawTokenValue(key: string, ctx: NameContext, geo?: GeoInfo): string | n
     const country = geo?.country ?? '';
     const countryCode = ctx.countryCode ?? geo?.countryCode ?? '';
     switch (key) {
-        case 'FLAG': return geo?.countryCode ? flagFromCode(geo.countryCode) : '';
+        case 'FLAG': return flagFromCode(countryCode);
         case 'COUNTRY': return country;
         case 'COUNTRY_CODE': return countryCode;
         case 'CITY': return geo?.city ?? '';
@@ -335,7 +368,7 @@ function rawTokenValue(key: string, ctx: NameContext, geo?: GeoInfo): string | n
         case 'IPNAME': return ctx.customName || '';
         case 'GROUP': return ctx.group || '';
         case 'B': return ctx.brand || '';
-        case 'F': return geo?.countryCode ? flagFromCode(geo.countryCode) : '';
+        case 'F': return flagFromCode(countryCode);
         case 'D': return ctx.address || '';
         case 'C': return country;
         case 'MARKER': return ctx.marker || '';
@@ -397,7 +430,9 @@ function splitGraphemes(value: string): string[] {
     const result: string[] = [];
     for (const char of Array.from(value)) {
         const previous = result[result.length - 1];
-        if (previous && (previous.endsWith('\u200d') || /[\u0300-\u036f\uFE00-\uFE0F]/u.test(char))) {
+        const isJoiner = char === '\u200d';
+        const isExtend = /[\u0300-\u036f\uFE00-\uFE0F\u{1F3FB}-\u{1F3FF}]/u.test(char);
+        if (previous && (previous.endsWith('\u200d') || isJoiner || isExtend)) {
             result[result.length - 1] += char;
         } else if (previous && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(previous) && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(char)) {
             result[result.length - 1] += char;
@@ -443,7 +478,14 @@ export function formatName(value: string, options: NameFormatOptions = {}): stri
 /** Remove characters that have structural meaning in a specific output. */
 export function sanitizeConfigName(value: string, target: 'tag' | 'uri' | 'filename' | 'remark' = 'tag'): string {
     let result = value.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim();
-    if (target === 'filename') result = result.replace(/[\\/:*?"<>|]/gu, '_');
+    if (target === 'filename') {
+        result = result
+            .replace(/[\\/:*?"<>|]/gu, '_')
+            // A trailing dot/space is not a usable filename on Windows and can
+            // become a surprising path after ZIP extraction.
+            .replace(/[. ]+$/gu, '');
+        if (/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/iu.test(result)) result = `_${result}`;
+    }
     if (target === 'uri') result = result.replace(/[\r\n]/gu, ' ');
     if (target === 'tag') result = result.replace(/[\\\t]/gu, ' ');
     return result.trim();
@@ -502,6 +544,11 @@ function missingIdentityDimensions(tokens: Set<string>, ctx: NameContext): strin
     if (ctx.security && !tokens.has('SECURITY')) missing.push('security');
     if (ctx.customName && !tokens.has('IPNAME')) missing.push('custom-name');
     if (ctx.group && !tokens.has('GROUP')) missing.push('group');
+    // Explicit identities include details that no public token necessarily
+    // exposes (for example imported credentials or the full Best Ping set).
+    // Always retain that identity in the generated name so collisions remain
+    // stable even when every visible context field is already in the template.
+    if (ctx.identity) missing.push('identity');
     return missing;
 }
 
@@ -511,6 +558,68 @@ function missingIdentityDimensions(tokens: Set<string>, ctx: NameContext): strin
  * config identity rather than list order, so reordering addresses does not
  * rename existing configs.
  */
+function shortIdentityName(ctx: NameContext, maxLength: number, collision = 0): string {
+    const seed = collision > 0
+        ? `${stableNameKey(ctx)}|collision:${collision}`
+        : stableNameKey(ctx);
+    const fingerprint = fnv1a(seed);
+    // `~` is useful as a marker at normal lengths, but with a one-character
+    // limit it would make every shortened name identical.
+    const value = maxLength === 1 ? fingerprint : `~${fingerprint}`;
+    return truncateName(value, maxLength);
+}
+
+function composeName(base: string, suffix: string, mode: NameFormat, maxLength?: number, ctx?: NameContext, collision = 0): string {
+    const formattedBase = formatName(base, { mode });
+    const formattedSuffix = formatName(suffix, { mode });
+
+    if (maxLength && formattedSuffix) {
+        const suffixLength = splitGraphemes(formattedSuffix).length;
+        if (suffixLength >= maxLength) {
+            return sanitizeConfigName(shortIdentityName(ctx!, maxLength, collision), 'tag');
+        }
+
+        const separator = formattedBase ? ' ' : '';
+        const available = maxLength - suffixLength - (separator ? 1 : 0);
+        const prefix = available > 0 ? truncateName(formattedBase, available) : '';
+        return sanitizeConfigName(`${prefix}${separator}${formattedSuffix}`, 'tag');
+    }
+
+    const composed = formattedSuffix
+        ? `${formattedBase}${formattedBase ? ' ' : ''}${formattedSuffix}`
+        : formattedBase;
+    return sanitizeConfigName(maxLength ? truncateName(composed, maxLength) : composed, 'tag');
+}
+
+/**
+ * Register a classic fallback when a configured template has no usable value.
+ * Most fallbacks already contain an index or address, but Best Ping and other
+ * logical configs can legitimately share one. Registering only the configured
+ * result is not enough because an empty optional template bypasses the normal
+ * uniqueness path.
+ */
+export function registerFallbackName(fallback: string, ctx: NameContext, options: NameFormatOptions): string {
+    const registry = ctx.registry;
+    if (!registry) return fallback;
+
+    const mode = options.mode ?? 'readable';
+    const maxLength = Number.isInteger(options.maxLength) && (options.maxLength ?? 0) > 0
+        ? options.maxLength!
+        : undefined;
+    const base = formatName(fallback, { mode });
+    const identitySuffix = stableNameSuffix(ctx);
+    let candidate = composeName(base, identitySuffix, mode, maxLength, ctx);
+    let collision = 1;
+
+    while (registry.names.has(candidate) && collision < 4096) {
+        collision++;
+        candidate = composeName(base, `${identitySuffix}-${collision}`, mode, maxLength, ctx, collision);
+    }
+
+    registry.names.add(candidate);
+    return candidate;
+}
+
 export function uniquifyName(
     rendered: string,
     template: string,
@@ -528,32 +637,25 @@ export function uniquifyName(
     if (missing.includes('port') && ctx.port != null) suffix.push(String(ctx.port));
     if (missing.length) suffix.push(stableNameSuffix(ctx));
 
-    let base = formatName(rendered, { mode });
-    const suffixText = formatName(suffix.join(' '), { mode });
-    const separator = base && suffixText ? ' ' : '';
     const maxLength = Number.isInteger(options.maxLength) && (options.maxLength ?? 0) > 0
         ? options.maxLength!
         : undefined;
-
-    if (maxLength && suffixText) {
-        const available = Math.max(1, maxLength - splitGraphemes(`${separator}${suffixText}`).length);
-        base = truncateName(base, available);
-    }
-
-    let candidate = sanitizeConfigName(formatName(`${base}${separator}${suffixText}`, { mode, maxLength }), 'tag');
-    if (!candidate) candidate = sanitizeConfigName(formatName(rendered, { mode, maxLength }), 'tag');
+    const base = formatName(rendered, { mode });
+    const suffixText = formatName(suffix.join(' '), { mode });
+    let candidate = composeName(base, suffixText, mode, maxLength, ctx);
+    if (!candidate) candidate = sanitizeConfigName(maxLength ? truncateName(base, maxLength) : base, 'tag');
 
     const registry = ctx.registry;
     if (registry) {
         const identitySuffix = stableNameSuffix(ctx);
         let collision = 1;
-        while (registry.names.has(candidate)) {
+        // A maximum length can make a stable suffix longer than the entire
+        // name. Use a hashed short form in that case and cap the retry loop so
+        // a one-character limit can never hang generation forever.
+        while (registry.names.has(candidate) && collision < 4096) {
             collision++;
             const suffixWithCollision = `${identitySuffix}-${collision}`;
-            const available = maxLength
-                ? Math.max(1, maxLength - splitGraphemes(` ${suffixWithCollision}`).length)
-                : undefined;
-            candidate = sanitizeConfigName(`${truncateName(formatName(rendered, { mode }), available)} ${suffixWithCollision}`, 'tag');
+            candidate = composeName(base, suffixWithCollision, mode, maxLength, ctx, collision);
         }
         registry.names.add(candidate);
     }
@@ -561,8 +663,8 @@ export function uniquifyName(
     return candidate;
 }
 
-export function createNameRegistry(): NameRegistry {
-    return { names: new Set<string>() };
+export function createNameRegistry(reserved: readonly string[] = []): NameRegistry {
+    return { names: new Set(reserved) };
 }
 
 // Map a geo connection type to the readable tag shown in config names.
@@ -621,10 +723,13 @@ export function buildNamePreview(template: string, options: NameFormatOptions = 
         return { diagnostics, rows: [], collisions: [] };
     }
 
-    const registry = createNameRegistry();
+    const registry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
     const rows = PREVIEW_CONTEXTS.map(({ label, ...context }) => {
-        const rawName = formatName(renderName(template, context), options);
-        const finalName = uniquifyName(rawName, template, { ...context, registry }, options) || '(empty → classic name)';
+        // Keep the representative matrix aligned with generated configs for
+        // brand-only templates such as `{B}`.
+        const previewContext = { brand: 'BPB', ...context };
+        const rawName = formatName(renderName(template, previewContext), options);
+        const finalName = uniquifyName(rawName, template, { ...previewContext, registry }, options) || '(empty → classic name)';
         return { label, rawName, finalName };
     });
 

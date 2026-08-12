@@ -39,12 +39,14 @@ export async function resolveGeo(
     let stale: GeoInfo | undefined = geoMemory.get(ip);
     try {
         const cached = await env.kv.get(key, 'json') as CacheEntry | null;
-        if (cached) {
-            if ('failed' in cached) return stale ?? null;
-            stale = cached;
-            geoMemory.set(ip, cached);
-            // A KV hit is authoritative and avoids a provider request.
-            return cached;
+        if (cached && typeof cached === 'object') {
+            if ('failed' in cached && cached.failed === true) return stale ?? null;
+            if ('ip' in cached && typeof cached.ip === 'string') {
+                stale = cached;
+                geoMemory.set(ip, cached);
+                // A KV hit is authoritative and avoids a provider request.
+                return cached;
+            }
         }
     } catch (e) {
         console.error(e);

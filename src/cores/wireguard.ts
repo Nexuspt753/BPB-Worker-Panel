@@ -16,7 +16,11 @@ export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Re
         } = getSettings();
 
         const zip = new JSZip();
-        const fileNames = createNameRegistry();
+        // Keep the naming registry separate from the sanitized filename set.
+        // The naming engine registers its candidate before returning it; using
+        // that same set for the ZIP check would append `-2` to every file.
+        const nameRegistry = createNameRegistry();
+        const fileNames = new Set<string>();
 
         for (const [index, endpoint] of (warpEndpoints ?? []).entries()) {
             const conf = [
@@ -57,7 +61,7 @@ export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Re
                 security: 'None',
                 transport: 'WireGuard',
                 family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4',
-                registry: fileNames
+                registry: nameRegistry
             };
             const configuredName = env
                 ? await getConfiguredNameWithMetadata(env, `${_project_}-Warp-${index + 1}`, nameContext)
@@ -65,11 +69,11 @@ export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Re
             let fileName = sanitizeConfigName(configuredName, 'filename') || `${_project_}-Warp-${index + 1}`;
             const originalFileName = fileName;
             let collision = 1;
-            while (fileNames.names.has(fileName)) {
+            while (fileNames.has(fileName)) {
                 collision++;
                 fileName = `${originalFileName}-${collision}`;
             }
-            fileNames.names.add(fileName);
+            fileNames.add(fileName);
             zip.file(`${fileName}.conf`, conf);
         }
 

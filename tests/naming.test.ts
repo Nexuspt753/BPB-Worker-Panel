@@ -9,6 +9,7 @@ import {
     normalizeAddress,
     parseAddressGroups,
     renderName,
+    registerFallbackName,
     stableNameSuffix,
     truncateName,
     uniquifyName
@@ -61,13 +62,61 @@ describe('config-name templates', () => {
         const two = uniquifyName('same', '{IP}', { ...first, index: 2, registry });
         expect(one).not.toBe(two);
         expect(two).toContain('-2');
+
+        const explicitA = { ...first, identity: 'credentials-a' };
+        const explicitB = { ...first, identity: 'credentials-b' };
+        expect(uniquifyName('same', '{IP}{PORT}{PROTO}{KIND}', explicitA))
+            .toContain(stableNameSuffix(explicitA));
+        expect(uniquifyName('same', '{IP}{PORT}{PROTO}{KIND}', explicitB))
+            .toContain(stableNameSuffix(explicitB));
+    });
+
+    test('keeps fallback names deterministic when visible values are unavailable', () => {
+        const firstRegistry = createNameRegistry();
+        const first = registerFallbackName('Best Ping', {
+            index: 1,
+            identity: 'main-domain',
+            registry: firstRegistry
+        }, {});
+        const second = registerFallbackName('Best Ping', {
+            index: 1,
+            identity: 'custom-domain',
+            registry: firstRegistry
+        }, {});
+        expect(first).not.toBe(second);
+        expect(first).toContain(stableNameSuffix({ index: 1, identity: 'main-domain' }));
+        expect(second).toContain(stableNameSuffix({ index: 1, identity: 'custom-domain' }));
+    });
+
+    test('keeps uniqueness bounded by the requested maximum length', () => {
+        const registry = createNameRegistry();
+        const first = uniquifyName('same', '{COUNTRY}', {
+            index: 1,
+            address: '1.1.1.1',
+            port: 443,
+            proto: 'VLESS',
+            kind: 'Normal',
+            registry
+        }, { maxLength: 8 });
+        const second = uniquifyName('same', '{COUNTRY}', {
+            index: 1,
+            address: '1.1.1.1',
+            port: 443,
+            proto: 'VLESS',
+            kind: 'Normal',
+            registry
+        }, { maxLength: 8 });
+
+        expect([...first].length).toBeLessThanOrEqual(8);
+        expect([...second].length).toBeLessThanOrEqual(8);
+        expect(first).not.toBe(second);
     });
 
     test('parses named address groups with IPv4 and IPv6 keys', () => {
         const groups = parseAddressGroups([
             'Cloudflare Fast:',
-            '1.1.1.1',
-            '[2606:4700::1111]',
+            '1.1.1.1:443',
+            '[2606:4700::1111]:443',
             'Backup: 1.0.0.1, example.com'
         ]);
         expect(groups.get('1.1.1.1')).toBe('Cloudflare Fast');
@@ -86,6 +135,13 @@ describe('config-name templates', () => {
         expect(result.rows.length).toBeGreaterThan(1);
         expect(result.collisions.length).toBeGreaterThan(0);
         expect(result.rows.some(row => row.rawName !== row.finalName)).toBe(true);
+
+        const reserved = buildNamePreview('✅ Selector');
+        expect(reserved.rows.every(row => row.rawName !== row.finalName)).toBe(true);
+
+        const brand = buildNamePreview('{B}');
+        expect(brand.rows.every(row => Boolean(row.rawName))).toBe(true);
+        expect(brand.rows[0]?.rawName).toBe('BPB');
     });
 });
 

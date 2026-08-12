@@ -105,6 +105,10 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
         '💦 Best Ping D 🚀': [],
         '💦 🔗 Best Ping D 🚀': [],
     };
+    // These names are emitted as proxy-group/selector identifiers, so a user
+    // template must not be allowed to generate a proxy with the same name.
+    nameRegistry.names.add('✅ Selector');
+    Object.keys(tagGroup).forEach(name => nameRegistry.names.add(name));
 
     for (const domain of domains) {
         const totalPorts = ports.filter(port => domain.endsWith('workers.dev') || isHttps(port));
@@ -183,6 +187,8 @@ export async function getClWarpConfig(isPro: boolean, env?: Env): Promise<Respon
         [`💦 Warp ${proSign}- Best Ping 🚀`]: [],
         [`💦 WoW ${proSign}- Best Ping 🚀`]: []
     };
+    nameRegistry.names.add('✅ Selector');
+    Object.keys(tagGroup).forEach(name => nameRegistry.names.add(name));
 
     for (const [index, endpoint] of warpEndpoints.entries()) {
         const { host, port } = parseHostPort(endpoint);
