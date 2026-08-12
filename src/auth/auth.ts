@@ -53,7 +53,6 @@ export async function authenticate(request: Request, env: Env): Promise<boolean>
     try {
         const secretKey = await env.kv.get('secretKey');
         if (secretKey === null) {
-            console.log('Secret key not found in KV.');
             return false;
         }
 
@@ -61,16 +60,13 @@ export async function authenticate(request: Request, env: Env): Promise<boolean>
         const cookie = request.headers.get('Cookie')?.match(/(^|;\s*)jwtToken=([^;]*)/);
         const token = cookie ? cookie[2] : null;
         if (!token) {
-            console.log('Unauthorized: Token not available!');
             return false;
         }
 
-        const { payload } = await jwtVerify(token, secret);
-        console.log(`Successfully authenticated, User ID: ${payload.id}`);
-
+        await jwtVerify(token, secret);
         return true;
     } catch (error) {
-        console.log(error);
+        console.error('[auth]', error);
         return false;
     }
 }

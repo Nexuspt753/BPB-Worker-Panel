@@ -14,6 +14,7 @@ import { createNameRegistry, RESERVED_NAME_IDENTIFIERS, normalizeAddress, type N
 
 import {
     getConfigAddresses,
+    concatIf,
     getConfiguredName,
     getConfiguredNameWithMetadata,
     generateRemark,
@@ -57,8 +58,11 @@ async function buildConfig(
     let balancers, observatory;
 
     if (isBalancer) {
-        balancers = [buildBalancer('all-proxies', 'proxy', balancerFallback)]
-            .concatIf(isChain, buildBalancer('all-chains', 'chain', false));
+        balancers = concatIf(
+            [buildBalancer('all-proxies', 'proxy', balancerFallback)],
+            isChain,
+            buildBalancer('all-chains', 'chain', false)
+        );
 
         observatory = {
             subjectSelector: isChain ? ['chain', 'proxy'] : ['proxy'],
@@ -82,7 +86,6 @@ async function buildConfig(
         inbounds: [
             buildMixedInbound(allowLANConnection, isWorkerLess, isWorkerLess || fakeDNS),
             buildDokodemoInbound(allowLANConnection),
-            // buildTunInbound(isWorkerLess, fakeDNS)
         ],
         outbounds: [
             ...outbounds,
@@ -332,7 +335,7 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
     } = getSettings();
 
     const chainOutbound = chainProxy ? buildChainOutbound() : undefined;
-    const domains = [mainDomain].concatIf(!!customDomain, customDomain);
+    const domains = concatIf([mainDomain], !!customDomain, customDomain);
     const protocols = getProtocols();
 
     const configs: Config[] = [];

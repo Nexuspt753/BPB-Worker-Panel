@@ -69,7 +69,6 @@ export async function setPagesDomain(domain: string) {
 export async function deletePagesProject() {
     const { accID, apiToken, mainDomain } = getGlobals();
     const projectName = mainDomain.split('.')[0];
-    console.log(mainDomain)
 
     try {
         const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accID}/pages/projects/${projectName}`, {

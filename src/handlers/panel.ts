@@ -243,7 +243,7 @@ async function getPanelSettings(request: Request, env: Env): Promise<Response> {
             'Expires': '0'
         });
     } catch (error) {
-        console.log(error);
+        console.error('[panel]', error);
         return respond(
             false,
             HttpStatus.INTERNAL_SERVER_ERROR,
@@ -282,7 +282,7 @@ async function updatePanelSettings(request: Request, env: Env): Promise<Response
 
         return respond(true, HttpStatus.OK, '');
     } catch (error) {
-        console.log(error);
+        console.error('[panel]', error);
         return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
     }
 }
@@ -305,7 +305,7 @@ async function resetPanelSettings(request: Request, env: Env): Promise<Response>
 
         return respond(true, HttpStatus.OK, '', { ...kvSettings, ...mainSettings });
     } catch (error) {
-        console.log(error);
+        console.error('[panel]', error);
         return respond(
             false,
             HttpStatus.INTERNAL_SERVER_ERROR,
@@ -343,7 +343,7 @@ async function updateWarpConfigs(request: Request, env: Env): Promise<Response> 
         await fetchWarpAccounts(env);
         return respond(true, HttpStatus.OK, 'Warp configs updated successfully!');
     } catch (error) {
-        console.log(error);
+        console.error('[panel]', error);
         return respond(
             false,
             HttpStatus.INTERNAL_SERVER_ERROR,

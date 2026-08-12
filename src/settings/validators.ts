@@ -664,11 +664,14 @@ function validateTrPass(form: PanelSettings, errors: ValidationError[]) {
 }
 
 function validateFallback(form: PanelSettings, errors: ValidationError[]) {
-    const fallback = form.fallback;
-    if (fallback && !isDomain(fallback)) {
+    const fallback = form.fallback?.trim();
+    if (!fallback) return;
+
+    const isSingleLabelHost = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/iu.test(fallback);
+    if (!isSingleLabelHost && !isDomain(fallback) && !isIPv4(fallback)) {
         errors.push({
             field: 'Fallback Domain',
-            message: ['It should be a domain!']
+            message: ['It should be a domain, IPv4, or a valid single-label host.']
         });
     }
 }

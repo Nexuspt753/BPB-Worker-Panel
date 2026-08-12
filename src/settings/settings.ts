@@ -108,20 +108,9 @@ export const getSettings = () => ({
 });
 
 let globalSettings: EmbededSettings & ReqSettings;
-let warpAccounts: WarpAccount[] = [
-    {
-        privateKey: '4NyxMUme2zGv5r3QWI0hJBlNglm1J/thoCE55PK29G8=',
-        publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
-        warpIPv6: '2606:4700:110:8fd2:11f3:8e67:11d4:3704/128',
-        reserved: 'N16D'
-    },
-    {
-        privateKey: 'aPQwXZBOndL0km0Swo0ArDOoy3bjeZzTu+/d4YHxW04=',
-        publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
-        warpIPv6: '2606:4700:110:859d:1029:4dfa:bf63:ff08/128',
-        reserved: 'SmWi'
-    }
-];
+// Warp identities are generated and persisted by the registration API. Never
+// ship shared private keys as a module-level fallback.
+let warpAccounts: WarpAccount[] = [];
 
 export const subscriptions: Subscription = {
     'normal': {

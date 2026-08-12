@@ -207,10 +207,10 @@ function buildUsageText(totalUsage: number, panelUsage: number): string {
         `${totalUsage} / 100,000 (${totalReqPct}%)`,
         '',
         ''
-    ].join('\n');
+    ].join('<br>');
 
     if (totalReqPct > 80) {
-        text += '🔴 <b>WARNING:</b> Approaching limit!\n';
+        text += '🔴 <b>WARNING:</b> Approaching limit!<br>';
     } else {
         text += '✅ All within limits';
     }
@@ -279,7 +279,7 @@ async function handleCallback(cq: TgCallbackQuery, token: string, chatId: number
         case 'sub':
             await tgFetch(token, 'sendMessage', {
                 chat_id: chatId,
-                text: '🔗 <b>Get Config</b>\n\nChoose a config type:',
+                text: '🔗 <b>Get Config</b><br><br>Choose a config type:',
                 parse_mode: 'HTML',
                 reply_markup: subKeyboard()
             });
@@ -288,7 +288,7 @@ async function handleCallback(cq: TgCallbackQuery, token: string, chatId: number
         case 'clients':
             await tgFetch(token, 'sendMessage', {
                 chat_id: chatId,
-                text: '📱 <b>Supported clients</b>\n\nChoose a client:',
+                text: '📱 <b>Supported clients</b><br><br>Choose a client:',
                 parse_mode: 'HTML',
                 reply_markup: clientsKeyboard()
             });
@@ -349,9 +349,9 @@ async function handleCallback(cq: TgCallbackQuery, token: string, chatId: number
                     const docUrl = buildDocUrl(typeKey, appInfo.core);
                     const wgClient = ['wireguard', 'amnezia'].includes(appInfo.core);
 
-                    const supportedList = appInfo.clients.map(a => `✅ ${a}`).join('\n');
-                    const showUrl = wgClient ? '' : `<code>${clientUrl}</code>\n\n`;
-                    const caption = `💦 <b>${_project_} ${subscription.label}</b>\n\n${showUrl}<b>Supported apps:</b>\n\n${supportedList}`;
+                    const supportedList = appInfo.clients.map(a => `✅ ${a}`).join('<br>');
+                    const showUrl = wgClient ? '' : `<code>${clientUrl}</code><br><br>`;
+                    const caption = `💦 <b>${_project_} ${subscription.label}</b><br><br>${showUrl}<b>Supported apps:</b><br><br>${supportedList}`;
 
                     const isLast = index === subscription.categories.length - 1;
                     const backBtn = {
@@ -401,7 +401,7 @@ async function handleCallback(cq: TgCallbackQuery, token: string, chatId: number
                     '',
                     `📥 <a href=\"${atob(client.b64Url)}\"><b>Get latest version</b></a>`,
                     ''
-                ].join('\n');
+                ].join('<br>');
 
                 await tgFetch(token, 'sendMessage', {
                     chat_id: chatId,
@@ -438,7 +438,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
         if (data === 'main') {
             await tgFetch(botToken, 'sendMessage', {
                 chat_id: chatId,
-                text: `🤖 <b>${_project_} Panel Bot</b>\n\nChoose an option:`,
+                text: `🤖 <b>${_project_} Panel Bot</b><br><br>Choose an option:`,
                 parse_mode: 'HTML',
                 reply_markup: mainKeyboard()
             });
@@ -471,7 +471,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
             case '/clients':
                 await tgFetch(botToken, 'sendMessage', {
                     chat_id: chatId,
-                    text: '📱 <b>Supported clients</b>\n\nChoose a client:',
+                    text: '📱 <b>Supported clients</b><br><br>Choose a client:',
                     parse_mode: 'HTML',
                     reply_markup: clientsKeyboard()
                 });
@@ -480,7 +480,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
             case '/config':
                 await tgFetch(botToken, 'sendMessage', {
                     chat_id: chatId,
-                    text: '🔗 <b>Get Config</b>\n\nChoose a configuration type:',
+                    text: '🔗 <b>Get Config</b><br><br>Choose a configuration type:',
                     parse_mode: 'HTML',
                     reply_markup: subKeyboard()
                 });
@@ -489,7 +489,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
             default:
                 await tgFetch(botToken, 'sendMessage', {
                     chat_id: chatId,
-                    text: `🤖 <b>${_project_} Panel Bot</b>\n\nChoose an option:`,
+                    text: `🤖 <b>${_project_} Panel Bot</b><br><br>Choose an option:`,
                     parse_mode: 'HTML',
                     reply_markup: mainKeyboard()
                 });

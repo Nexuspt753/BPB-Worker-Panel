@@ -99,7 +99,7 @@ export async function getConfigAddresses(domain: string, isFragment: boolean): P
     // name template that includes {IP} but not {INDEX}, two identical names,
     // which clash and sing-box cannot both key.
     const seen = new Set<string>();
-    return addrs.concatIf(!isFragment, customCdnAddrs).filter(Boolean).filter(address => {
+    return concatIf(addrs, !isFragment, customCdnAddrs).filter(Boolean).filter(address => {
         const key = normalize(address);
         if (!key || seen.has(key)) return false;
         seen.add(key);
@@ -559,8 +559,21 @@ export function base64ToDecimal(base64: string): number[] {
 export function isDomain(address: string): boolean {
     if (!address) return false;
     const normalized = address.trim().replace(/\.+$/u, '');
-    const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
-    return domainRegex.test(normalized);
+    if (!normalized || /[\s/:@#[\]]/u.test(normalized)) return false;
+
+    const label = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
+    const domainRegex = new RegExp(`^(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$`, 'iu');
+    if (domainRegex.test(normalized)) return true;
+
+    // URL uses the platform's IDN/Punycode implementation in both Workers and
+    // standard runtimes. Normalize Unicode hostnames through it, then apply the
+    // same label and TLD checks to the resulting ASCII hostname.
+    try {
+        const ascii = new URL(`http://${normalized}`).hostname.replace(/\\.+$/u, '').toLowerCase();
+        return domainRegex.test(ascii);
+    } catch {
+        return false;
+    }
 }
 
 export function isIPv4(address: string): boolean {
@@ -726,15 +739,14 @@ export function toRange(min?: number, max?: number) {
     return `${min}-${max}`;
 }
 
-Array.prototype.concatIf = function <T>(condition: boolean, concat: T | T[]): T[] {
-    if (!condition) return this;
-    if (Array.isArray(concat)) return [...this, ...concat];
-    return [...this, concat]
+export function concatIf<T>(arr: T[], condition: boolean, values: T | T[]): T[] {
+    if (!condition) return arr;
+    return Array.isArray(values) ? [...arr, ...values] : [...arr, values];
 }
 
-Object.prototype.omitEmpty = function <T>(): T | undefined {
-    if (Object.keys(this).length === 0) return undefined;
-    return this as T;
+export function omitEmpty<T extends object>(obj: T | null | undefined): T | undefined {
+    if (!obj || Object.keys(obj).length === 0) return undefined;
+    return obj;
 }
 
 export function extractProxyParams(chainProxy: string) {

@@ -1,6 +1,6 @@
 import { Route, RoutingRule, RuleSet } from '#types/sing-box';
 import { getGeoAssets } from './geo-assets';
-import { accRoutingRules, GeoAsset } from '@utils';
+import { accRoutingRules, GeoAsset, omitEmpty } from '@utils';
 import { getSettings } from '@settings';
 
 export function buildRoutingRules(isWarp: boolean): Route {
@@ -83,7 +83,7 @@ export function buildRoutingRules(isWarp: boolean): Route {
 
     return {
         rules,
-        rule_set: ruleSets.omitEmpty(),
+        rule_set: omitEmpty(ruleSets),
         auto_detect_interface: true,
         final: '✅ Selector'
     };

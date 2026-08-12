@@ -18,7 +18,8 @@ export async function VlOverWSHandler(request: Request): Promise<Response> {
     let portWithRandomLog = '';
 
     const log = (info: string, event?: string) => {
-        console.log(`[${address}:${portWithRandomLog}] ${info}`, event || '');
+        if (!/(?:error|abort|closed)/iu.test(info)) return;
+        console.error(`[vless:${address}:${portWithRandomLog}] ${info}`, event || '');
     };
 
     const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';

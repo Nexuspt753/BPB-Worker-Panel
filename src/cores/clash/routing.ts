@@ -1,7 +1,7 @@
 import { RuleProvider } from '#types/clash';
 import { getSettings } from '@settings';
 import { getGeoAssets } from './geo-assets';
-import { isIPv6, isIPv4, accRoutingRules, GeoAsset } from '@utils';
+import { isIPv6, isIPv4, accRoutingRules, GeoAsset, omitEmpty } from '@utils';
 
 export function buildRoutingRules(isWarp: boolean) {
     const { blockUDP443 } = getSettings();
@@ -31,10 +31,10 @@ export function buildRoutingRules(isWarp: boolean) {
 
 export function buildRuleProviders(): Record<string, RuleProvider> | undefined {
     const geoAssets = getGeoAssets();
-    return geoAssets.reduce((providers, asset) => {
+    return omitEmpty(geoAssets.reduce((providers, asset) => {
         addRuleProvider(providers, asset);
         return providers;
-    }, {}).omitEmpty();
+    }, {} as Record<string, RuleProvider>));
 }
 
 function addRuleProvider(

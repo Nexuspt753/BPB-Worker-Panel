@@ -1,6 +1,4 @@
 import { WarpAccount } from '#types/settings';
-import { getWarpAccounts } from '@settings';
-
 interface WarpKeys {
     publicKey: string;
     privateKey: string;
@@ -8,7 +6,6 @@ interface WarpKeys {
 
 export async function fetchWarpAccounts(env: Env): Promise<WarpAccount[]> {
     const warpAccounts: WarpAccount[] = [];
-    const defaultWarpAccounts = getWarpAccounts();
 
     try {
 
@@ -38,7 +35,7 @@ export async function fetchWarpAccounts(env: Env): Promise<WarpAccount[]> {
             error instanceof Error ? error.message : String(error)
         );
 
-        return defaultWarpAccounts;
+        throw new Error('Unable to provision unique WARP accounts.');
     }
 }
 

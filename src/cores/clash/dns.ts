@@ -1,6 +1,6 @@
 import { getGeoAssets } from './geo-assets';
 import { DNS, DnsHosts, FakeDNS } from '#types/clash';
-import { isDomain, getDomain, accDnsRules } from '@utils';
+import { isDomain, getDomain, accDnsRules, concatIf, omitEmpty } from '@utils';
 import { getSettings } from '@settings';
 
 export async function buildDNS(isChain: boolean, isWarp: boolean, isPro: boolean): Promise<DNS> {
@@ -33,7 +33,7 @@ export async function buildDNS(isChain: boolean, isWarp: boolean, isPro: boolean
 
     if (remoteDnsHost.isDomain && !isWarp) {
         const { ipv4, ipv6, host } = remoteDnsHost;
-        hosts[host] = ipv4.concatIf(enableIPv6, ipv6);
+        hosts[host] = concatIf(ipv4, enableIPv6, ipv6);
     }
 
     const geoAssets = getGeoAssets();
@@ -83,12 +83,12 @@ export async function buildDNS(isChain: boolean, isWarp: boolean, isPro: boolean
         'use-system-hosts': false,
         'listen': listen,
         'ipv6': enableIPv6,
-        'hosts': hosts.omitEmpty(),
+        'hosts': omitEmpty(hosts),
         'nameserver': [finalRemoteDNS],
         'proxy-server-nameserver': [finalLocalDNS],
         'direct-nameserver': [finalLocalDNS],
         'direct-nameserver-follow-policy': true,
-        'nameserver-policy': nameserverPolicy.omitEmpty(),
+        'nameserver-policy': omitEmpty(nameserverPolicy),
         'enhanced-mode': enhancedMode,
         ...fakeDnsSettings
     };

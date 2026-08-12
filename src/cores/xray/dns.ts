@@ -1,6 +1,6 @@
 import type { DNS, DnsServer, DnsHosts } from '#types/xray';
 import { getGeoAssets } from './geo-assets';
-import { resolveDNS, isDomain, getDomain, accDnsRules } from '@utils';
+import { resolveDNS, isDomain, getDomain, accDnsRules, concatIf, omitEmpty } from '@utils';
 import { getSettings } from '@settings';
 
 export async function buildDNS(
@@ -27,7 +27,7 @@ export async function buildDNS(
 
     if (remoteDnsHost.isDomain && !isWorkerLess && !isWarp) {
         const { ipv4, ipv6, host } = remoteDnsHost;
-        hosts[host] = ipv4.concatIf(enableIPv6, ipv6);
+        hosts[host] = concatIf(ipv4, enableIPv6, ipv6);
     }
 
     if (domainToStaticIPs) {
@@ -99,7 +99,7 @@ export async function buildDNS(
     }
 
     return {
-        hosts: hosts.omitEmpty(),
+        hosts: omitEmpty(hosts),
         servers,
         queryStrategy: isWarp && !enableIPv6 ? 'UseIPv4' : 'UseIP',
         tag: 'dns'

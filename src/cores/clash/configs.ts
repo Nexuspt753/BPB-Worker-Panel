@@ -2,7 +2,7 @@ import { buildDNS } from './dns';
 import { buildRoutingRules, buildRuleProviders } from './routing';
 import { buildChainOutbound, buildUrlTest, buildWarpOutbound, buildWebsocketOutbound } from './outbounds';
 import type { WireguardOutbound, Config, Outbound } from '#types/clash';
-import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
+import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort, concatIf } from '@utils';
 import { sniffer, tun } from './inbounds';
 import { getSettings, getWarpAccounts } from '@settings';
 import { createNameRegistry, RESERVED_NAME_IDENTIFIERS } from '../naming';
@@ -94,7 +94,7 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
 
     const chainOutbound = chainProxy ? buildChainOutbound() : undefined;
     const isChain = !!chainOutbound;
-    const domains = [mainDomain].concatIf(!!customDomain, customDomain);
+    const domains = concatIf([mainDomain], !!customDomain, customDomain);
     const protocols = getProtocols();
 
     const outbounds: Outbound[] = [];

@@ -1,6 +1,6 @@
 import { getGeoAssets } from './geo-assets';
 import { DNS, DnsRule, DnsServer } from '#types/sing-box';
-import { getDomain, accDnsRules } from '@utils';
+import { getDomain, accDnsRules, concatIf, omitEmpty } from '@utils';
 import { getSettings } from '@settings';
 
 export async function buildDNS(isWarp: boolean, isChain: boolean): Promise<DNS> {
@@ -46,13 +46,13 @@ export async function buildDNS(isWarp: boolean, isChain: boolean): Promise<DNS> 
 
     if (enableECH) {
         const { mainDomain, customDomain } = getSettings();
-        const echServerNames = echServerName ? [echServerName] : [mainDomain].concatIf(!!customDomain, customDomain);
+        const echServerNames = echServerName ? [echServerName] : concatIf([mainDomain], !!customDomain, customDomain);
         addDnsRule(rules, 'dns-direct', undefined, undefined, undefined, echServerNames, ['HTTPS']);
     }
 
     if (remoteDnsHost.isDomain && !isWarp) {
         const { ipv4, ipv6, host } = remoteDnsHost;
-        const predefined = ipv4.concatIf(enableIPv6, ipv6);
+        const predefined = concatIf(ipv4, enableIPv6, ipv6);
         addDnsServer(servers, 'hosts', 'hosts', undefined, undefined, undefined, host, predefined);
         rules.unshift({
             ip_accept_any: true,
@@ -200,7 +200,7 @@ function addDnsRule(
             { rule_set: geoip }
         ] : undefined,
         rule_set: geosite?.length && !geoip ? geosite : undefined,
-        domain_suffix: domain?.omitEmpty(),
+        domain_suffix: omitEmpty(domain),
         query_type,
         action: dns === 'reject' ? 'reject' : 'route',
         server: dns === 'reject' ? undefined : dns

@@ -5,7 +5,8 @@ import {
     isHttps,
     generateWsPath,
     toRange,
-    selectSniHost
+    selectSniHost,
+    omitEmpty
 } from '@utils';
 
 import {
@@ -202,7 +203,7 @@ export function buildWarpOutbound(
     return {
         protocol: 'wireguard',
         settings: wgSettings,
-        streamSettings: streamSettings.omitEmpty(),
+        streamSettings: omitEmpty(streamSettings),
         tag: isWoW ? 'chain' : 'proxy'
     } satisfies Outbound;
 }

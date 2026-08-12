@@ -31,13 +31,6 @@ declare global {
     const _website_: string;
     const _public_proxy_ip_: string;
 
-    interface Array<T> {
-        concatIf<T>(condition: boolean, concat: T | T[]): T[];
-    }
-
-    interface Object {
-        omitEmpty<T>(): T | undefined;
-    }
 }
 
 export { };

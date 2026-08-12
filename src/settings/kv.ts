@@ -66,7 +66,7 @@ export async function getDataset(env: Env): Promise<{
             warpAccounts
         };
     } catch (error) {
-        console.log(error);
+        console.error('[kv]', error);
         throw new Error(`An error occurred while getting KV: ${safeError(error)}`);
     }
 }
@@ -84,7 +84,7 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
     try {
         currentSettings = await env.kv.get('proxySettings', { type: 'json' });
     } catch (error) {
-        console.log(error);
+        console.error('[kv]', error);
         throw new Error(`An error occurred while getting current KV settings: ${safeError(error)}`);
     }
 
@@ -226,7 +226,7 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
         await env.kv.put('proxySettings', JSON.stringify(updatedSettings));
         return updatedSettings;
     } catch (error) {
-        console.log(error);
+        console.error('[kv]', error);
         throw new Error(`An error occurred while updating KV: ${safeError(error)}`);
     }
 }

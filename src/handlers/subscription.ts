@@ -202,7 +202,7 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
             }
         }
         await sweepLatency(env, targets);
-    })().catch(() => { }));
+    })().catch((error) => console.error('[latency-sweep]', error)));
 }
 
 async function shareSettings() {

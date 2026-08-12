@@ -55,7 +55,7 @@ export async function handleTCPOutBound(
         try {
             const tcpSocket = await connectAndWrite(addressRemote, portRemote);
             tcpSocket.closed
-                .catch(error => console.log('retry TCP socket closed error', error))
+                .catch(error => console.error('[tcp-retry]', error))
                 .finally(() => safeCloseWebSocket(webSocket));
 
             remoteSocketToWS(tcpSocket, webSocket, VLResponseHeader, null, log);

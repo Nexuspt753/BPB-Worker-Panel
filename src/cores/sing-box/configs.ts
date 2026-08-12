@@ -1,5 +1,5 @@
 import { Outbound, WireguardEndpoint, Config } from '#types/sing-box';
-import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
+import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort, concatIf, omitEmpty } from '@utils';
 import { buildChainOutbound, buildUrlTest, buildWarpOutbound, buildWebsocketOutbound } from './outbounds.js';
 import { getSettings, getWarpAccounts } from '@settings';
 import { createNameRegistry, RESERVED_NAME_IDENTIFIERS } from '../naming';
@@ -52,7 +52,7 @@ async function buildConfig(
                 domain_resolver: 'dns-direct'
             }
         ],
-        endpoints: endpoints.omitEmpty(),
+        endpoints: omitEmpty(endpoints),
         route: buildRoutingRules(isWarp),
         ntp: {
             enabled: true,
@@ -98,7 +98,7 @@ export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<
 
     const chainOutbound = chainProxy ? buildChainOutbound() : undefined;
     const isChain = !!chainOutbound;
-    const domains = [mainDomain].concatIf(!!customDomain, customDomain);
+    const domains = concatIf([mainDomain], !!customDomain, customDomain);
     const protocols = getProtocols();
     const outbounds: Outbound[] = [];
     const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);

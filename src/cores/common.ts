@@ -8,6 +8,7 @@ import {
     getConfiguredNameWithMetadata,
     getConfiguredNameSnapshot,
     getProtocols,
+    concatIf,
     isBase64,
     isDomain,
     isHttps,
@@ -72,7 +73,7 @@ export async function getURLConfigs(env: Env) {
     let VLConfs = '', TRConfs = '', chainConfig = '';
     let proxyIndex = 1;
     const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
-    const domains = [mainDomain].concatIf(!!customDomain, customDomain);
+    const domains = concatIf([mainDomain], !!customDomain, customDomain);
     const protocols = getProtocols();
 
     for (const domain of domains) {
