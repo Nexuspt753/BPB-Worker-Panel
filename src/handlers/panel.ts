@@ -11,6 +11,7 @@ import { getGlobals, getMainSettings, subscriptions, clients } from '@settings';
 import { validateSettings } from '@validators';
 import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
+import { buildNamePreview } from '@cores/naming';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -23,6 +24,12 @@ export async function handlePanel(request: Request, env: Env): Promise<Response>
 
         case 'panel/settings':
             return getPanelSettings(request, env);
+
+        case 'panel/name-preview':
+            return previewNames(request, env);
+
+        case 'panel/regenerate-name-snapshots':
+            return regenerateNameSnapshots(request, env);
 
         case 'panel/update-settings':
             return updatePanelSettings(request, env);
@@ -128,6 +135,52 @@ async function deletePanel(request: Request, env: Env): Promise<Response> {
             HttpStatus.INTERNAL_SERVER_ERROR,
             `Error occurred while deleting panel: ${safeError(error)}`
         );
+    }
+}
+
+async function previewNames(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') {
+        return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    }
+
+    const auth = await authenticate(request, env);
+    if (!auth) {
+        return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+    }
+
+    try {
+        const body = await request.json() as { template?: unknown; mode?: unknown; maxLength?: unknown };
+        const mode = body.mode === 'compact' || body.mode === 'ascii' ? body.mode : 'readable';
+        const maxLength = Number.isInteger(Number(body.maxLength)) && Number(body.maxLength) > 0
+            ? Math.min(200, Number(body.maxLength))
+            : undefined;
+        return respond(true, HttpStatus.OK, '', buildNamePreview(String(body.template ?? ''), { mode, maxLength }));
+    } catch (error) {
+        return respond(false, HttpStatus.BAD_REQUEST, safeError(error));
+    }
+}
+
+async function regenerateNameSnapshots(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') {
+        return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    }
+
+    const auth = await authenticate(request, env);
+    if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+
+    try {
+        let cursor: string | undefined;
+        let count = 0;
+        do {
+            const listed = await env.kv.list({ prefix: 'nameSnapshot:', ...(cursor ? { cursor } : {}) });
+            count += listed.keys.length;
+            await Promise.all(listed.keys.map(key => env.kv.delete(key.name)));
+            cursor = listed.list_complete ? undefined : listed.cursor || undefined;
+        } while (cursor);
+
+        return respond(true, HttpStatus.OK, 'Frozen config names will be regenerated on the next subscription fetch.', { count });
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
     }
 }
 

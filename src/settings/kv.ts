@@ -27,7 +27,9 @@ export async function getDataset(env: Env): Promise<{
             || storedSettings.nameTemplateVersion !== NAME_TEMPLATE_VERSION
             || !('nameFormat' in storedSettings)
             || !('nameMaxLength' in storedSettings)
-            || !('nameGeoMode' in storedSettings)) {
+            || !('nameGeoMode' in storedSettings)
+            || !('nameFreezeGeo' in storedSettings)
+            || !('nameAddressGroups' in storedSettings)) {
             await env.kv.put('proxySettings', JSON.stringify(settings));
         }
 
@@ -175,6 +177,8 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
             ['nameFormat'],
             ['nameMaxLength'],
             ['nameGeoMode'],
+            ['nameFreezeGeo'],
+            ['nameAddressGroups'],
             ['latencyAutoTest'],
             ['latencyIntervalMin']
         ];
@@ -214,7 +218,9 @@ function normalizeSettings(stored: Partial<KvSettings> | null, defaults: KvSetti
         nameTemplateVersion: NAME_TEMPLATE_VERSION,
         nameFormat: source.nameFormat ?? defaults.nameFormat,
         nameMaxLength: source.nameMaxLength ?? defaults.nameMaxLength,
-        nameGeoMode: source.nameGeoMode ?? defaults.nameGeoMode
+        nameGeoMode: source.nameGeoMode ?? defaults.nameGeoMode,
+        nameFreezeGeo: source.nameFreezeGeo === true,
+        nameAddressGroups: Array.isArray(source.nameAddressGroups) ? source.nameAddressGroups : defaults.nameAddressGroups
     } as KvSettings;
 }
 

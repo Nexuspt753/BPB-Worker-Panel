@@ -2,7 +2,7 @@ import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
 import { resolveGeo, type GeoInfo } from './geo';
-import { renderName, uniquifyName, templateTokens, normalizeAddress as normalize, cleanIpHost, splitIpAndName, formatCacheAge, type NameContext } from './naming';
+import { renderName, uniquifyName, templateTokens, normalizeAddress as normalize, cleanIpHost, splitIpAndName, findAddressGroup, formatCacheAge, nameSnapshotKey, type NameContext, type NameRegistry } from './naming';
 import { getLatencyRecord } from './latency';
 
 // In-isolate cache for geo/latency lookups: the same address repeats across
@@ -100,15 +100,104 @@ export async function getConfigAddresses(domain: string, isFragment: boolean): P
 
 /** Render a configured name for config types that do not have a dial address. */
 export function getConfiguredName(fallback: string, context: NameContext): string {
-    const { nameTemplate, nameFormat, nameMaxLength } = getSettings();
+    const { nameTemplate, nameFormat, nameMaxLength, nameAddressGroups } = getSettings();
     if (!nameTemplate || !nameTemplate.trim()) return fallback;
 
-    const rendered = renderName(nameTemplate, context);
+    const nameContext: NameContext = {
+        ...context,
+        group: context.group ?? findAddressGroup(context.address, nameAddressGroups)
+    };
+    const rendered = renderName(nameTemplate, nameContext);
     if (!rendered.trim() || rendered.trim() === '--') return fallback;
 
     const mode = nameFormat === 'compact' || nameFormat === 'ascii' ? nameFormat : 'readable';
     const maxLength = Number.isInteger(nameMaxLength) && nameMaxLength > 0 ? nameMaxLength : undefined;
-    return uniquifyName(rendered, nameTemplate, context, { mode, maxLength });
+    const configured = uniquifyName(rendered, nameTemplate, nameContext, { mode, maxLength });
+    return configured || fallback;
+}
+
+export async function getConfiguredNameSnapshot(env: Env, fallback: string, context: NameContext): Promise<string> {
+    const settings = getSettings();
+    if (!settings.nameFreezeGeo || !settings.nameTemplate?.trim()) return getConfiguredName(fallback, context);
+
+    const nameContext: NameContext = {
+        ...context,
+        group: context.group ?? findAddressGroup(context.address, settings.nameAddressGroups)
+    };
+    const key = nameSnapshotKey(
+        `${settings.nameTemplate}|${settings.nameFormat}|${settings.nameMaxLength}`,
+        nameContext
+    );
+    try {
+        const saved = await env.kv.get(key);
+        if (saved) {
+            // Register a frozen value in the current output so duplicate
+            // endpoints still receive a deterministic collision suffix.
+            if (!nameContext.registry || !nameContext.registry.names.has(saved)) {
+                nameContext.registry?.names.add(saved);
+                return saved;
+            }
+            return getConfiguredName(fallback, nameContext);
+        }
+    } catch (error) {
+        console.error(error);
+    }
+
+    const generated = getConfiguredName(fallback, nameContext);
+    try {
+        await env.kv.put(key, generated, { expirationTtl: 60 * 60 * 24 * 365 }).catch(() => { });
+    } catch { /* snapshots are best-effort; the live name remains usable */ }
+    return generated;
+}
+
+/**
+ * Resolve the optional metadata needed by a generated name that is not tied to
+ * the normal VLESS/Trojan address loop (Best Ping, Warp, and Smart Fragment).
+ * Keeping this path here makes every output format use the same privacy,
+ * latency, egress, and snapshot rules as ordinary remarks.
+ */
+export async function getConfiguredNameWithMetadata(
+    env: Env,
+    fallback: string,
+    context: NameContext
+): Promise<string> {
+    const settings = getSettings();
+    if (!settings.nameTemplate?.trim()) return fallback;
+
+    const tokens = templateTokens(settings.nameTemplate);
+    const wantsLatency = tokens.has('LATENCY') || tokens.has('LATENCY_AGE');
+    const latencyRecord = wantsLatency && settings.latencyAutoTest === true && context.address
+        ? await memoize(`lat:${normalize(context.address)}`, () => getLatencyRecord(env, context.address!))
+        : null;
+
+    const needsGeo = [
+        'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE',
+        'GEO_AGE', 'F', 'C', 'EGRESS_IP'
+    ].some(token => tokens.has(token));
+    const geoMode = settings.nameFreezeGeo || settings.nameGeoMode === 'local'
+        ? 'local'
+        : settings.nameGeoMode === 'disabled' ? 'disabled' : 'auto';
+    const canLookupGeo = geoMode !== 'disabled';
+    let geo = context.geo;
+    let dialGeo: GeoInfo | undefined;
+
+    if (needsGeo && canLookupGeo && !geo) {
+        geo = await memoize(egressMemoKey(geoMode), () => resolveEgressGeo(env, geoMode === 'local')) ?? undefined;
+        if (!geo && context.address) {
+            dialGeo = await memoize(`geo:${geoMode}:${normalize(context.address)}`, async () =>
+                (await resolveGeo(env, context.address!, { cacheOnly: geoMode === 'local' })) ?? null
+            ) ?? undefined;
+            geo = dialGeo;
+        }
+    }
+
+    return getConfiguredNameSnapshot(env, fallback, {
+        ...context,
+        geo,
+        latency: context.latency ?? (latencyRecord?.ms != null ? String(latencyRecord.ms) : undefined),
+        latencyAge: context.latencyAge ?? formatCacheAge(latencyRecord?.measuredAt),
+        egressIp: context.egressIp ?? geo?.ip ?? dialGeo?.ip ?? (context.address ? normalize(context.address) : undefined)
+    });
 }
 
 export async function generateRemark(
@@ -120,7 +209,8 @@ export async function generateRemark(
     domain: string,
     isFragment: boolean,
     isChain: boolean,
-    core = ''
+    core = '',
+    registry?: NameRegistry
 ): Promise<string> {
     const {
         cleanIPs,
@@ -130,6 +220,8 @@ export async function generateRemark(
         nameTemplate,
         latencyAutoTest,
         nameGeoMode,
+        nameFreezeGeo,
+        nameAddressGroups,
         httpsPorts
     } = getSettings();
 
@@ -174,7 +266,11 @@ export async function generateRemark(
             'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE',
             'GEO_AGE', 'F', 'C', 'EGRESS_IP'
         ].some(token => tokens.has(token));
-        const geoMode = nameGeoMode === 'local' || nameGeoMode === 'disabled' ? nameGeoMode : 'auto';
+        // Freeze mode deliberately uses the last cached geo value and never
+        // replaces a name because a provider returned newer geography.
+        const geoMode = nameFreezeGeo || nameGeoMode === 'local'
+            ? 'local'
+            : nameGeoMode === 'disabled' ? 'disabled' : 'auto';
         const canLookupGeo = geoMode !== 'disabled';
 
         // Geo is resolved for the actual egress only when the template needs it.
@@ -208,6 +304,7 @@ export async function generateRemark(
             latency: latencyRecord?.ms != null ? String(latencyRecord.ms) : undefined,
             latencyAge: formatCacheAge(latencyRecord?.measuredAt),
             customName: ipNameMap.get(normalize(address)) || undefined,
+            group: findAddressGroup(address, nameAddressGroups),
             marker: configType.trim(),
             egressIp,
             proto: protoSign,
@@ -219,13 +316,14 @@ export async function generateRemark(
             family,
             domain,
             core: core || 'unknown',
-            kind: isChain ? 'Chain' : isFragment ? 'Fragment' : 'Normal'
+            kind: isChain ? 'Chain' : isFragment ? 'Fragment' : 'Normal',
+            registry
         };
 
         // If rendering yields nothing meaningful, keep today's output.
         const rendered = renderName(nameTemplate, nameCtx);
         if (rendered.trim() && rendered.trim() !== '--') {
-            return getConfiguredName(fallback, nameCtx);
+            return getConfiguredNameSnapshot(env, fallback, nameCtx);
         }
     }
 

@@ -2,9 +2,10 @@ import { buildDNS } from './dns';
 import { buildRoutingRules, buildRuleProviders } from './routing';
 import { buildChainOutbound, buildUrlTest, buildWarpOutbound, buildWebsocketOutbound } from './outbounds';
 import type { WireguardOutbound, Config, Outbound } from '#types/clash';
-import { getConfigAddresses, getConfiguredName, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
+import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
 import { sniffer, tun } from './inbounds';
 import { getSettings, getWarpAccounts } from '@settings';
+import { createNameRegistry } from '../naming';
 
 type TagGroup = Record<string, string[]>;
 
@@ -97,6 +98,7 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
     const protocols = getProtocols();
 
     const outbounds: Outbound[] = [];
+    const nameRegistry = createNameRegistry();
     const tagGroup: TagGroup = {
         '💦 Best Ping 🚀': [],
         '💦 🔗 Best Ping 🚀': [],
@@ -118,7 +120,7 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
                 for (const host of hosts) {
                     if ((port === upstreamPort) !== (host === upstreamServer)) continue;
 
-                    const tag = await generateRemark(env, protocolIndex, port, host, protocol, domain, false, false, 'clash');
+                    const tag = await generateRemark(env, protocolIndex, port, host, protocol, domain, false, false, 'clash', nameRegistry);
                     const outbound = buildWebsocketOutbound(protocol, tag, host, port, domain);
 
                     if (outbound) {
@@ -130,7 +132,7 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
                         }
 
                         if (isChain) {
-                            const chainTag = await generateRemark(env, protocolIndex, port, host, protocol, domain, false, true, 'clash');
+                            const chainTag = await generateRemark(env, protocolIndex, port, host, protocol, domain, false, true, 'clash', nameRegistry);
                             const chain = structuredClone(chainOutbound);
                             chain['name'] = chainTag;
                             chain['dialer-proxy'] = tag;
@@ -170,54 +172,48 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
     });
 }
 
-export async function getClWarpConfig(isPro: boolean): Promise<Response> {
+export async function getClWarpConfig(isPro: boolean, env?: Env): Promise<Response> {
     const { warpEndpoints } = getSettings();
     const warpAccounts = getWarpAccounts();
 
     const outbounds: WireguardOutbound[] = [];
+    const nameRegistry = createNameRegistry();
     const proSign = isPro ? 'Pro ' : '';
     const tagGroup: TagGroup = {
         [`💦 Warp ${proSign}- Best Ping 🚀`]: [],
         [`💦 WoW ${proSign}- Best Ping 🚀`]: []
     };
 
-    warpEndpoints.forEach((endpoint, index) => {
+    for (const [index, endpoint] of warpEndpoints.entries()) {
         const { host, port } = parseHostPort(endpoint);
-        const warpTag = getConfiguredName(`💦 ${index + 1}. Warp ${proSign}🇮🇷`, {
+        const addressContext = {
             index: index + 1,
             address: host,
             port,
-            marker: 'Warp',
-            proto: 'Warp',
-            kind: isPro ? 'Warp Pro' : 'Warp',
             core: 'clash',
             domain: host,
             security: 'None',
             transport: 'WireGuard',
             family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
-        });
-        tagGroup[`💦 Warp ${proSign}- Best Ping 🚀`].push(warpTag);
+        };
+        const warpContext = { ...addressContext, marker: 'Warp', proto: 'Warp', kind: isPro ? 'Warp Pro' : 'Warp', registry: nameRegistry };
+        const wowContext = { ...addressContext, marker: 'WoW', proto: 'Warp', chain: true, kind: isPro ? 'WoW Pro' : 'WoW', registry: nameRegistry };
+        const warpTag = env
+            ? await getConfiguredNameWithMetadata(env, `💦 ${index + 1}. Warp ${proSign}🇮🇷`, warpContext)
+            : getConfiguredName(`💦 ${index + 1}. Warp ${proSign}🇮🇷`, warpContext);
+        const wowTag = env
+            ? await getConfiguredNameWithMetadata(env, `💦 ${index + 1}. WoW ${proSign}🌍`, wowContext)
+            : getConfiguredName(`💦 ${index + 1}. WoW ${proSign}🌍`, wowContext);
 
-        const wowTag = getConfiguredName(`💦 ${index + 1}. WoW ${proSign}🌍`, {
-            index: index + 1,
-            address: host,
-            port,
-            marker: 'WoW',
-            proto: 'Warp',
-            chain: true,
-            kind: isPro ? 'WoW Pro' : 'WoW',
-            core: 'clash',
-            domain: host,
-            security: 'None',
-            transport: 'WireGuard',
-            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
-        });
+        tagGroup[`💦 Warp ${proSign}- Best Ping 🚀`].push(warpTag);
         tagGroup[`💦 WoW ${proSign}- Best Ping 🚀`].push(wowTag);
+
+
 
         const warpOutbound = buildWarpOutbound(warpAccounts[0], warpTag, endpoint, '', isPro);
         const wowOutbound = buildWarpOutbound(warpAccounts[1], wowTag, endpoint, warpTag, false);
         outbounds.push(warpOutbound, wowOutbound);
-    });
+    }
 
     const config = await buildConfig(
         outbounds,

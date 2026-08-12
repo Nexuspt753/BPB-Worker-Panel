@@ -1,9 +1,10 @@
 import { HttpStatus, respond, safeError } from '@common';
 import { getSettings, getWarpAccounts } from '@settings';
-import { getConfiguredName, isDomain, parseHostPort } from '@utils';
+import { getConfiguredName, getConfiguredNameWithMetadata, isDomain, parseHostPort } from '@utils';
+import { createNameRegistry, sanitizeConfigName } from './naming';
 import JSZip from 'jszip';
 
-export async function getWireguardConfigs(isPro: boolean): Promise<Response> {
+export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Response> {
     try {
         const { warpIPv6, publicKey, privateKey } = getWarpAccounts()[0];
         const {
@@ -15,8 +16,9 @@ export async function getWireguardConfigs(isPro: boolean): Promise<Response> {
         } = getSettings();
 
         const zip = new JSZip();
+        const fileNames = createNameRegistry();
 
-        warpEndpoints?.forEach((endpoint, index) => {
+        for (const [index, endpoint] of (warpEndpoints ?? []).entries()) {
             const conf = [
                 '[Interface]',
                 `PrivateKey = ${privateKey}`,
@@ -43,7 +45,7 @@ export async function getWireguardConfigs(isPro: boolean): Promise<Response> {
             ].join('\n');
 
             const { host, port } = parseHostPort(endpoint);
-            const configuredName = getConfiguredName(`${_project_}-Warp-${index + 1}`, {
+            const nameContext = {
                 index: index + 1,
                 address: host,
                 port,
@@ -54,11 +56,22 @@ export async function getWireguardConfigs(isPro: boolean): Promise<Response> {
                 domain: host,
                 security: 'None',
                 transport: 'WireGuard',
-                family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
-            });
-            const fileName = configuredName.replace(/[\\/:*?"<>|]/gu, '_').trim() || `${_project_}-Warp-${index + 1}`;
+                family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4',
+                registry: fileNames
+            };
+            const configuredName = env
+                ? await getConfiguredNameWithMetadata(env, `${_project_}-Warp-${index + 1}`, nameContext)
+                : getConfiguredName(`${_project_}-Warp-${index + 1}`, nameContext);
+            let fileName = sanitizeConfigName(configuredName, 'filename') || `${_project_}-Warp-${index + 1}`;
+            const originalFileName = fileName;
+            let collision = 1;
+            while (fileNames.names.has(fileName)) {
+                collision++;
+                fileName = `${originalFileName}-${collision}`;
+            }
+            fileNames.names.add(fileName);
             zip.file(`${fileName}.conf`, conf);
-        });
+        }
 
         const zipBlob = await zip.generateAsync({ type: 'blob' });
         const arrayBuffer = await zipBlob.arrayBuffer();

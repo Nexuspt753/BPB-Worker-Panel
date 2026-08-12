@@ -2,7 +2,7 @@ const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
 const nameTemplateTokens = [
     'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE',
-    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN',
+    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN',
     'EGRESS_IP', 'B', 'F', 'D', 'C', 'SECURITY', 'TRANSPORT', 'SNI', 'HOST', 'FAMILY',
     'DOMAIN', 'CORE', 'KIND'
 ];
@@ -146,6 +146,7 @@ function previewTokenValue(token, context) {
         LATENCY_AGE: context.latencyAge,
         IP: context.address,
         IPNAME: context.customName,
+        GROUP: context.group,
         INDEX: String(context.index),
         PORT: String(context.port),
         MARKER: context.marker,
@@ -194,6 +195,18 @@ function renderPreviewTemplate(template, context) {
     return /[{}[\]]/.test(source) ? null : source;
 }
 
+function previewGraphemes(value) {
+    if (Intl.Segmenter) {
+        return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(item => item.segment);
+    }
+    return Array.from(value);
+}
+
+function truncatePreviewName(value, maxLength) {
+    if (!Number.isInteger(maxLength) || maxLength < 1) return value;
+    return previewGraphemes(value).slice(0, maxLength).join('').trimEnd();
+}
+
 function formatPreviewName(value, mode, maxLength) {
     let result = String(value || '')
         .replace(/[\u0000-\u001f\u007f]/g, '')
@@ -205,43 +218,85 @@ function formatPreviewName(value, mode, maxLength) {
         result = result.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '').trim();
     }
     const limit = Number(maxLength);
-    return Number.isInteger(limit) && limit > 0 ? result.slice(0, limit).trimEnd() : result;
+    return truncatePreviewName(result, Number.isInteger(limit) && limit > 0 ? limit : undefined);
 }
 
-function previewUniqueName(rendered, template, context, mode, maxLength) {
+function stablePreviewSuffix(context) {
+    const source = [
+        context.kind,
+        context.core,
+        context.proto,
+        context.address,
+        context.port,
+        context.domain,
+        context.marker,
+        context.chain ? 'chain' : 'direct',
+        context.transport,
+        context.security,
+        context.customName,
+        context.group
+    ].map(value => String(value ?? '')).join('|');
+    let hash = 0x811c9dc5;
+    for (const char of source) {
+        hash ^= char.codePointAt(0) || 0;
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return `~${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function previewUniqueName(rendered, template, context, mode, maxLength, registry = new Set()) {
     const tokens = new Set([...template.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(match => match[1].toUpperCase()));
+    const missing = [];
+    if (context.address && !tokens.has('IP') && !tokens.has('D')) missing.push('address');
+    if (context.domain && context.domain !== context.address && !tokens.has('DOMAIN')) missing.push('domain');
+    if (context.port != null && !tokens.has('PORT')) missing.push('port');
+    if (context.proto && !tokens.has('PROTO')) missing.push('protocol');
+    if (context.chain && !tokens.has('CHAIN')) missing.push('chain');
+    if (context.marker && !tokens.has('MARKER')) missing.push('marker');
+    if (context.kind && !tokens.has('KIND')) missing.push('kind');
     const suffix = [];
-    if (!tokens.has('CHAIN') && context.chain) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
-    if (!tokens.has('MARKER') && context.marker) suffix.push(context.marker.trim());
-    if (!tokens.has('PROTO') && context.proto) suffix.push(context.proto);
-    if (!tokens.has('PORT') && context.port) suffix.push(String(context.port));
-    if (!tokens.has('INDEX') && !tokens.has('IP') && !tokens.has('D')) suffix.push(`#${context.index}`);
+    if (missing.includes('chain')) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
+    if (missing.includes('marker') && context.marker) suffix.push(context.marker.trim());
+    if (missing.includes('protocol') && context.proto) suffix.push(context.proto);
+    if (missing.includes('port') && context.port != null) suffix.push(String(context.port));
+    if (missing.length) suffix.push(stablePreviewSuffix(context));
+
     const base = formatPreviewName(rendered, mode, 0);
     const suffixText = formatPreviewName(suffix.join(' '), mode, 0);
     const separator = base && suffixText ? ' ' : '';
     const limit = Number(maxLength);
     const available = Number.isInteger(limit) && limit > 0
-        ? Math.max(1, limit - separator.length - suffixText.length)
+        ? Math.max(1, limit - previewGraphemes(`${separator}${suffixText}`).length)
         : undefined;
-    const shortened = available ? base.slice(0, available).trimEnd() : base;
-    return formatPreviewName(`${shortened}${separator}${suffixText}`, mode, maxLength);
+    let candidate = formatPreviewName(`${truncatePreviewName(base, available)}${separator}${suffixText}`, mode, maxLength);
+    let collision = 1;
+    while (registry.has(candidate)) {
+        collision++;
+        const collisionSuffix = `${stablePreviewSuffix(context)}-${collision}`;
+        const collisionLimit = Number.isInteger(limit) && limit > 0
+            ? Math.max(1, limit - previewGraphemes(` ${collisionSuffix}`).length)
+            : undefined;
+        candidate = formatPreviewName(`${truncatePreviewName(base, collisionLimit)} ${collisionSuffix}`, mode, maxLength);
+    }
+    registry.add(candidate);
+    return candidate;
 }
 
 const templatePreviewContexts = [
     {
         label: 'Frankfurt / VLESS', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
         city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '42', latencyAge: '4m',
-        customName: '', marker: '', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal'
+        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal'
     },
     {
         label: 'Frankfurt / Trojan', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
         city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '38', latencyAge: '4m',
-        customName: '', marker: '', proto: 'Trojan', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal'
+        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'Trojan', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal'
     },
     {
         label: 'Named clean IP', index: 2, address: '2.2.2.2', port: 8443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
         city: 'Frankfurt', region: 'Hesse', isp: 'Example CDN', asn: 'AS64500', type: 'Hosting', geoAge: '1d', latency: '61', latencyAge: '18m',
-        customName: 'Fast edge', marker: 'C', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal'
+        customName: 'Fast edge', group: 'Cloudflare Fast', marker: 'C', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal'
     },
     {
         label: 'Fragment chain', index: 3, address: 'example.com', port: 443, flag: '🇺🇸', country: 'United States', countryCode: 'US',
@@ -255,59 +310,108 @@ const templatePreviewContexts = [
     }
 ];
 
-function updateNameTemplatePreview() {
+let namePreviewRequest = 0;
+let namePreviewTimer;
+
+function renderNamePreviewResult(result) {
     const preview = document.getElementById('nameTemplatePreview');
     const collisions = document.getElementById('nameTemplateCollisions');
+    const diagnostics = document.getElementById('nameTemplateDiagnostics');
     const input = document.getElementById('nameTemplate');
-    if (!preview || !collisions || !input) return;
+    if (!preview || !collisions || !diagnostics) return;
 
-    const template = input.value.trim();
-    const mode = document.getElementById('nameFormat')?.value || 'readable';
-    const maxLength = document.getElementById('nameMaxLength')?.value || 0;
-    if (!template) {
-        preview.textContent = 'Set a template to preview generated names.';
-        collisions.textContent = 'No collisions analyzed.';
-        return;
+    const hasDiagnostics = Boolean(result.diagnostics?.length);
+    input?.classList.toggle('name-template-invalid', hasDiagnostics);
+    input?.setAttribute('aria-invalid', hasDiagnostics ? 'true' : 'false');
+    if (hasDiagnostics) {
+        input?.setAttribute('title', result.diagnostics.map(item => item.message).join(' '));
+    } else {
+        input?.removeAttribute('title');
     }
 
-    const rawNames = templatePreviewContexts.map(context => renderPreviewTemplate(template, context));
-    if (rawNames.some(name => name === null)) {
-        preview.textContent = 'Invalid template syntax. Close every token and use [[optional sections]].';
+    diagnostics.replaceChildren(...(result.diagnostics || []).map(item => {
+        const line = document.createElement('div');
+        line.textContent = `${item.message} (characters ${item.start + 1}-${Math.max(item.start + 1, item.end)})`;
+        return line;
+    }));
+
+    if (hasDiagnostics) {
+        preview.textContent = 'Fix the highlighted template syntax to see generated names.';
         collisions.textContent = 'Collision analysis paused until the template is valid.';
         return;
     }
 
-    const previewLines = templatePreviewContexts.map((context, index) => {
-        const name = previewUniqueName(rawNames[index], template, context, mode, maxLength) || '(empty → classic name)';
+    preview.replaceChildren(...(result.rows || []).map(row => {
         const line = document.createElement('div');
         line.className = 'name-preview-line';
-        line.textContent = `${context.label}: ${name}`;
+        line.textContent = `${row.label}: ${row.finalName || '(empty → classic name)'}`;
+        line.title = `Raw: ${row.rawName || '(empty)'}`;
         return line;
-    });
-    preview.replaceChildren(...previewLines);
+    }));
 
-    const grouped = new Map();
-    rawNames.forEach((name, index) => {
-        const key = formatPreviewName(name, mode, maxLength) || '(empty)';
-        const entries = grouped.get(key) || [];
-        entries.push(templatePreviewContexts[index].label);
-        grouped.set(key, entries);
-    });
-    const duplicateEntries = [...grouped.entries()].filter(([, labels]) => labels.length > 1);
-    if (!duplicateEntries.length) {
+    if (!result.collisions?.length) {
         collisions.textContent = 'No collisions in the representative examples.';
         return;
     }
 
     const intro = document.createElement('div');
-    intro.textContent = 'The raw template produces duplicate names; the backend adds protocol, port, chain, marker, or index suffixes when omitted.';
+    intro.textContent = 'Raw duplicate names are shown below; final names use the same stable identity suffix logic as subscriptions.';
     const list = document.createElement('ul');
-    duplicateEntries.forEach(([name, labels]) => {
+    result.collisions.forEach(({ name, labels }) => {
         const item = document.createElement('li');
         item.textContent = `${name}: ${labels.join(' + ')}`;
         list.appendChild(item);
     });
     collisions.replaceChildren(intro, list);
+}
+
+function renderLocalNamePreviewFallback(template, mode, maxLength) {
+    const rawNames = templatePreviewContexts.map(context => renderPreviewTemplate(template, context));
+    if (rawNames.some(name => name === null)) {
+        renderNamePreviewResult({ diagnostics: [{ message: 'Invalid template syntax.', start: 0, end: template.length }], rows: [], collisions: [] });
+        return;
+    }
+    const registry = new Set();
+    const rows = templatePreviewContexts.map((context, index) => ({
+        label: context.label,
+        rawName: formatPreviewName(rawNames[index], mode, maxLength),
+        finalName: previewUniqueName(rawNames[index], template, context, mode, maxLength, registry)
+    }));
+    renderNamePreviewResult({ diagnostics: [], rows, collisions: [] });
+}
+
+function updateNameTemplatePreview() {
+    const input = document.getElementById('nameTemplate');
+    if (!input) return;
+    clearTimeout(namePreviewTimer);
+    namePreviewTimer = setTimeout(async () => {
+        const template = input.value.trim();
+        const mode = document.getElementById('nameFormat')?.value || 'readable';
+        const maxLength = document.getElementById('nameMaxLength')?.value || 0;
+        if (!template) {
+            renderNamePreviewResult({ diagnostics: [], rows: [], collisions: [] });
+            document.getElementById('nameTemplatePreview').textContent = 'Set a template to preview generated names.';
+            document.getElementById('nameTemplateCollisions').textContent = 'No collisions analyzed.';
+            return;
+        }
+
+        const requestId = ++namePreviewRequest;
+        try {
+            const response = await fetch('./panel/name-preview', {
+                method: 'POST',
+                credentials: 'include',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ template, mode, maxLength })
+            });
+            const payload = await response.json();
+            if (requestId !== namePreviewRequest) return;
+            if (!payload.success) throw new Error(payload.message || 'Preview failed');
+            renderNamePreviewResult(payload.body);
+        } catch {
+            if (requestId === namePreviewRequest) renderLocalNamePreviewFallback(template, mode, maxLength);
+        }
+    }, 120);
 }
 
 function initNameTemplateTools() {
@@ -323,7 +427,7 @@ function initNameTemplateTools() {
         input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     ['input', 'change'].forEach(type => input.addEventListener(type, updateNameTemplatePreview));
-    ['nameFormat', 'nameMaxLength', 'nameGeoMode'].forEach(id => {
+    ['nameFormat', 'nameMaxLength', 'nameGeoMode', 'nameFreezeGeo', 'nameAddressGroups'].forEach(id => {
         document.getElementById(id)?.addEventListener('input', updateNameTemplatePreview);
         document.getElementById(id)?.addEventListener('change', updateNameTemplatePreview);
     });
@@ -895,6 +999,23 @@ function updateSettings(event, data) {
         })
         .catch(error => console.error('Update settings error:', error))
         .finally(() => stopWaiting(icons));
+}
+
+async function regenerateNameSnapshots(btn) {
+    const confirm = await notify('confirm', 'Regenerate frozen names', ['This clears saved geo-derived names. They will be generated again on the next subscription fetch.', 'Continue?']);
+    if (!confirm) return;
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const response = await fetch('./panel/regenerate-name-snapshots', { method: 'POST', credentials: 'include' });
+        const { success, status, message } = await response.json();
+        if (!success) throw new Error(`status ${status} - ${message}`);
+        notify('success', 'Regenerate frozen names', [message]);
+    } catch (error) {
+        console.error('Regenerating frozen names error:', error);
+        notify('error', 'Regenerate frozen names', ['Failed to clear saved names.']);
+    } finally {
+        stopWaiting(icons);
+    }
 }
 
 function setupTelegramBot() {

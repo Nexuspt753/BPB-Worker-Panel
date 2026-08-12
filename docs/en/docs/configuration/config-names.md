@@ -1,93 +1,170 @@
 # :material-tag-multiple:{ .md .middle } Config Names
 
-By default each generated config is named from its address type and port. If you prefer more descriptive names, this section lets you build a custom **name template** that is auto-filled for every config from a geo lookup (country, city, region, ISP, provider and connection type) plus any custom names you define yourself.
+The **Config Names** section controls the names generated for BPB configs. The template is empty by default, so existing address-and-port names remain unchanged until you enable this feature.
 
-The template is empty by default, so names stay exactly as before (address type and port) until you fill it in. For example:
+For example:
 
+```text
+{MARKER}{FLAG}{COUNTRY} - {IP} [[ - {IPNAME}]]
 ```
-{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}
+
+The panel provides autocomplete while you type. Enter `{` to open the token list, type to filter it, then use the arrow keys with Enter or Tab to insert a token.
+
+## Template syntax
+
+Tokens use one pair of braces, for example `{IP}` or `{COUNTRY_CODE}`. Token names are case-insensitive. Optional sections use a non-nested double-bracket pair:
+
+```text
+{IP}[[ - {IPNAME}]][[ ({LATENCY}ms)]]
 ```
 
-You can build the template from any combination of the placeholders below.
+An optional section is omitted when every token inside it is empty or unavailable. This keeps separators and punctuation from being left behind.
 
-The template box shows an autocomplete dropdown as you type: press `{` to see every placeholder, keep typing to filter the list, and use the arrow keys with Enter/Tab to insert one. The dropdown only appears while the caret is inside an open `{...}` token, so it never suggests mid-name.
+Malformed templates are rejected before saving. Examples include:
 
-Use `[[...]]` for an optional section. For example, `'{IP}[[ - {IPNAME}]]'` omits the separator and custom-name portion when `{IPNAME}` is unavailable. Optional sections cannot be nested, and malformed braces are rejected before settings are saved.
+- `{{IP}COUNTRY}` — nested token
+- `{IP` or `IP}` — unmatched brace
+- `{}` — empty token
+- `[[{IP}` — unmatched optional section
+- `[[[[{IP}]]]]` — nested optional section
+- `{NOT_A_TOKEN}` — unknown token
 
-The preset menu provides Compact, Detailed, Latency ranking and Protocol-aware starting points. The live examples show representative normal, fragment, chain and Warp names; the collision preview compares the raw results before the server adds deterministic uniqueness suffixes.
+The panel reports the invalid range and the reason. Adjacent valid tokens such as `{IP}{PORT}` are supported.
 
-!!! info
-    Any placeholder with no known value renders as `--`, so the template shape stays stable even when geo data is missing. `{MARKER}` and `{CHAIN}` are the exceptions: they render empty when they do not apply.
+## Presets and live preview
 
-## Available placeholders
+The preset menu provides starting points:
 
-- `{MARKER}` — the config-type prefix (`F` for fragment, `D` for custom domain, `C` for custom CDN); empty when none apply.
-- `{FLAG}` — country flag emoji.
-- `{COUNTRY}` — country name.
-- `{COUNTRY_CODE}` — two-letter ISO country code.
-- `{CITY}` — city name.
-- `{REGION}` — region / province name.
-- `{ISP}` — internet service provider.
-- `{ASN}` — AS number.
-- `{TYPE}` — connection type: `Hosting`, `Mobile` or `Residential`.
-- `{GEO_AGE}` — age of the cached geo result (`2h`, `1d`, etc.).
-- `{LATENCY}` — latency in ms, kept fresh by the optional auto-test below; `--` when no measured value exists.
-- `{LATENCY_AGE}` — age of the cached latency result.
-- `{IP}` — the config address.
-- `{EGRESS_IP}` — the IP your traffic actually exits from (see below).
-- `{IPNAME}` — your custom name for the address, if you set one below.
-- `{PROTO}` — the config protocol.
-- `{CHAIN}` — 🔗 for the chain-proxy variant of a config; empty otherwise.
-- `{INDEX}` — the config index number.
-- `{PORT}` — the config port number.
-- `{B}` — the panel brand name.
-- `{F}` — same as flag (legacy).
-- `{D}` — the address/domain (legacy).
-- `{C}` — the country name (legacy).
-- `{SECURITY}` — `TLS` or `None` for the generated connection.
-- `{TRANSPORT}` — transport such as `WS` or `WireGuard`.
-- `{SNI}` / `{HOST}` — TLS SNI and host values.
-- `{FAMILY}` — `IPv4`, `IPv6` or `Domain`.
-- `{DOMAIN}` — the panel/custom domain used by the config.
-- `{CORE}` — `xray`, `sing-box`, `clash`, `wireguard` or another generating core.
-- `{KIND}` — `Normal`, `Fragment`, `Chain`, `Warp`, `Best Ping`, etc.
+- **Compact:** `{FLAG} {IP}:{PORT}`
+- **Detailed:** `{MARKER}{FLAG}{COUNTRY} - {IP} [[ - {IPNAME} ]]`
+- **Latency ranking:** `[[{LATENCY}ms | ]]{FLAG} {IP}`
+- **Protocol-aware:** `{PROTO} {MARKER}{IP}:{PORT}`
 
-Placeholder names are case-insensitive, so `{flag}` and `{FLAG}` behave the same. The legacy aliases remain supported and are recorded with a template format version so future migrations can be applied safely.
+**Live examples** show representative VLESS, Trojan, clean-IP, Fragment/Chain, and Warp results. **Collision preview** displays the raw duplicate names and the final names after the same backend uniqueness logic used by subscriptions. It is an example matrix, not a promise that every deployment contains those exact addresses.
 
-!!! tip
-    The `{FLAG}` emoji is derived from the two-letter country code returned by the geo lookup. Non-geo placeholders such as `{INDEX}` and `{PORT}` always resolve without needing a lookup.
+## Available tokens
 
-!!! note
-    Every config needs a unique name — clients key their proxies by it. If your template leaves out the facts that separate one config from another (port, protocol, chain variant, address), the panel appends the missing ones automatically. So a bare `{FLAG}{COUNTRY}` still produces distinct names such as `🇩🇪Germany VL 443 #1`.
+| Token | Meaning |
+| --- | --- |
+| `{MARKER}` | Config marker: `F` for Fragment, `D` for custom domain, or `C` for custom CDN. Empty when none applies. |
+| `{FLAG}` / `{F}` | Country flag emoji. `{F}` is the legacy alias. |
+| `{COUNTRY}` / `{C}` | Country name. `{C}` is the legacy alias. |
+| `{COUNTRY_CODE}` | Two-letter ISO country code. |
+| `{CITY}` | City. |
+| `{REGION}` | Region or province. |
+| `{ISP}` | Internet service provider. |
+| `{ASN}` | Autonomous system number. |
+| `{TYPE}` | `Hosting`, `Mobile`, or `Residential`, when supplied by geo data. |
+| `{GEO_AGE}` | Age of cached geo data, such as `2h` or `1d`. |
+| `{LATENCY}` | Latest opt-in Worker-to-address latency in milliseconds. |
+| `{LATENCY_AGE}` | Age of the cached latency measurement. |
+| `{IP}` / `{D}` | Dial address. `{D}` is the legacy alias. |
+| `{IPNAME}` | Name after `#` in a Clean IP entry. |
+| `{GROUP}` | Label from the Address groups field. |
+| `{EGRESS_IP}` | Address from which traffic actually exits, when it can be determined. |
+| `{INDEX}` | Config index. |
+| `{PORT}` | Config port. |
+| `{PROTO}` | Protocol, such as `VLESS`, `Trojan`, or `Warp`. |
+| `{CHAIN}` | `🔗` for a chain variant, otherwise empty. |
+| `{B}` | BPB brand name. |
+| `{SECURITY}` | Connection security, such as `TLS` or `None`. |
+| `{TRANSPORT}` | Transport, such as `WS` or `WireGuard`. |
+| `{SNI}` / `{HOST}` | TLS SNI and host values. |
+| `{FAMILY}` | `IPv4`, `IPv6`, or `Domain`. |
+| `{DOMAIN}` | Domain used to build the config. |
+| `{CORE}` | Generating core, such as `xray`, `sing-box`, `clash`, or `wireguard`. |
+| `{KIND}` | Config kind, such as `Normal`, `Fragment`, `Chain`, `Best Ping`, `Warp`, or `Imported`. |
 
-## Geo data describes the egress, not the address
+A token with no value renders as `--`. `{MARKER}`, `{CHAIN}`, and `{GROUP}` render empty when they do not apply, which makes them useful inside optional sections.
 
-The geo placeholders (`{FLAG}`, `{COUNTRY}`, `{CITY}`, `{REGION}`, `{ISP}`, `{ASN}`, `{TYPE}`) describe the IP your traffic **exits** from, which is what a website you visit sees — not the address the client dials. Cloudflare edge IPs mostly geolocate to Cloudflare's own registered country, so labelling them would be misleading.
+## Where names are applied
 
-In Proxy IP mode the egress is your first configured proxy IP; otherwise it is Cloudflare's own egress, probed once and cached. `{EGRESS_IP}` prints that address. If the egress cannot be determined, the placeholders fall back to the geo of the dialled address.
+| Config/output | Naming support |
+| --- | --- |
+| Normal VLESS/Trojan | Xray, sing-box, and Clash names/tags |
+| Fragment and Chain variants | Xray, sing-box, and Clash names/tags where supported |
+| Best Ping and Smart Fragment | Xray config remarks |
+| Raw subscriptions | Generated VLESS/Trojan names, chain name, and supported imported URI names |
+| Warp and Warp Pro | Xray, sing-box, and Clash names/tags |
+| WireGuard and Amnezia | ZIP filenames, with filesystem-safe characters |
+| External configs | Supported VLESS, Trojan, VMess, Shadowsocks, SOCKS, and HTTP URI schemes; unknown formats are left unchanged |
 
-## Custom names per IP
+The empty template preserves the original output names. After changing a template, update subscriptions so clients receive the new names.
 
-To give a specific IP a fixed name, add one entry on its own line in the **Clean IPs** box. Each line is either a bare host or `host # Name` — the part after the first `#` is the config remark shown as `{IPNAME}`. For example:
+## Stable uniqueness and collisions
 
+Client cores use names as identifiers: Clash uses proxy names, sing-box uses outbound tags, Xray uses remarks, and WireGuard uses filenames. The panel therefore keeps generated names unique.
+
+When a template omits an identity dimension such as the address, protocol, port, marker, or chain state, the missing information is added as a readable hint followed by a stable fingerprint, for example:
+
+```text
+🇩🇪Germany VLESS 443 ~a1b2c3d4
 ```
-1.2.3.4 # My Server
-1.1.1.1 # Cloudflare
+
+The fingerprint is derived from the config identity rather than list order. Reordering addresses does not rename them. If two genuinely identical rendered names still occur, the later one receives a deterministic `-2`, `-3`, and so on suffix within that output.
+
+Maximum length is applied after reserving space for the uniqueness suffix, so truncation does not remove the part that distinguishes configs.
+
+## Address groups
+
+Address groups let one label apply to several addresses. They are separate from the per-address `IPNAME` comment in **Clean IPs**.
+
+Use either a header followed by addresses:
+
+```text
+Cloudflare Fast:
+1.1.1.1
 1.0.0.1
+[2606:4700::1111]
+
+Backup: 8.8.8.8, example.com
 ```
 
-Any config whose address matches a line uses that name in place of `{IPNAME}`. Addresses are matched as written (IPv6 brackets are stripped). A line like `1.2.3.4 #` with an empty name simply contributes the bare host with no name. When a template is enabled, supported imported URI configs are also given the same template with `KIND=Imported`; unrecognized external formats are left untouched.
+Then use `{GROUP}` in a template:
 
-## Auto-test latency
+```text
+{GROUP} - {IP}
+```
 
-`{LATENCY}` stays fresh through an optional **auto-test** — a checkbox in the Config Names section, turned off by default. When enabled, the panel periodically re-measures the addresses your configs dial at the interval you choose (10–1440 minutes), so `{LATENCY}` reflects recent results. When disabled, `{LATENCY}` renders `--`. Note that this uses a small amount of Worker requests.
+IPv6 brackets are normalized for matching. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
 
-Latency is measured from the Worker's network — how quickly the Cloudflare edge serving your panel reaches that address — not your local ping. The measurement is a plain HTTP round-trip, so treat it as a relative ranking between addresses rather than an exact figure for your own connection.
+## Geo and egress behavior
 
-The manual test on the Proxy IP page is separate: it health-checks the public proxy IPs listed there and does not feed `{LATENCY}`.
+Geo tokens describe the address that traffic exits from, not necessarily the Cloudflare address the client dials. In Proxy IP mode the first configured Proxy IP is used as the egress candidate. Otherwise the Worker probes and caches its public egress address. If that cannot be determined, the dial address is used as a fallback.
+
+A template containing only `{IP}`, `{PORT}`, `{INDEX}`, `{PROTO}`, or other non-geo tokens does not trigger geo-provider requests. Geo lookups use a five-second timeout, an in-isolate memo, a KV cache, stale data when available, and a provider request budget so one failing or rate-limited provider cannot break a subscription.
+
+### Frozen names
+
+Enable **Freeze geo-derived names** when a country, city, or provider change must not rename an existing config. Frozen names are stored by stable config identity and reused on later subscription requests. The feature also uses cached geo data only while generating a new snapshot.
+
+Use **Regenerate frozen names** to clear snapshots and let the next subscription fetch create them again. The button is intentionally explicit because it can change names in clients.
+
+## Latency ranking
+
+Enable **Auto-test config IPs latency** to populate `{LATENCY}` and `{LATENCY_AGE}`. The interval is 10–1440 minutes. Measurements are made from the Worker, not from the user's device, and are intended for relative ranking.
+
+The sweep is bounded to a small concurrency, deduplicates addresses, times out probes, and stores only healthy Cloudflare-edge responses. It runs after a subscription response and never makes a failed probe or KV write fail the subscription. When auto-testing is disabled, cached latency is not rendered as a current `{LATENCY}` value.
+
+The Proxy IP page's manual health test is separate and does not populate this token.
 
 ## Formatting and privacy
 
-Choose **Readable**, **Compact** or **ASCII-safe** formatting and optionally cap names at 200 characters. The panel trims control characters, collapses whitespace and preserves the distinguishing suffix when a limit is set.
+- **Readable** collapses repeated whitespace and preserves Unicode.
+- **Compact** removes unnecessary spacing around `|` and `·` and tightens separator spacing.
+- **ASCII-safe** removes accents and non-ASCII symbols for clients with strict name handling.
+- **Maximum name length** accepts `0` for unlimited or a whole number up to 200. Truncation is Unicode/grapheme-safe.
 
-Geo privacy has three modes: **Automatic** may query the configured provider and cache results, **Cached data only** never makes a new geo request, and **Disable geo lookups** leaves geo tokens unavailable. `{GEO_AGE}` and `{LATENCY_AGE}` let you show how old cached values are; missing or disabled values are omitted inside optional sections.
+Geo privacy has three modes:
+
+- **Automatic lookup with cache** may query the geo provider when a geo token is used.
+- **Cached data only** never makes a fresh geo request.
+- **Disable geo lookups** does not query geo providers; geo tokens remain unavailable and are best placed in optional sections.
+
+`{GEO_AGE}` and `{LATENCY_AGE}` expose cache age so a template can make data freshness visible.
+
+## Migration and fallback behavior
+
+The saved `nameTemplateVersion` is migrated when older settings are loaded. Current migrations canonicalize token spelling without rewriting surrounding user text. Invalid imported settings are rejected by the same parser used by the panel.
+
+If a template is empty, malformed, or renders no meaningful value for a config, BPB falls back to that config type's classic name instead of emitting an empty client entry. Unknown external config formats are never rewritten.

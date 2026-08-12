@@ -1,18 +1,29 @@
 import type { GeoInfo } from './geo';
 
-export const NAME_TEMPLATE_VERSION = 2;
+export const NAME_TEMPLATE_VERSION = 3;
 export const NAME_TEMPLATE_TOKENS = [
     'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE',
-    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
+    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
     'B', 'F', 'D', 'C', 'SECURITY', 'TRANSPORT', 'SNI', 'HOST', 'FAMILY', 'DOMAIN',
     'CORE', 'KIND'
 ] as const;
 
 export type NameFormat = 'readable' | 'compact' | 'ascii';
 
+export interface NameRegistry {
+    names: Set<string>;
+}
+
 export interface NameFormatOptions {
     mode?: NameFormat;
     maxLength?: number;
+}
+
+export interface NameTemplateDiagnostic {
+    code: 'unmatched-open' | 'unmatched-close' | 'nested-token' | 'empty-token' | 'invalid-token' | 'nested-optional' | 'unmatched-optional' | 'unknown-token' | 'invalid-template';
+    message: string;
+    start: number;
+    end: number;
 }
 
 /**
@@ -34,9 +45,53 @@ export function cleanIpHost(entry: string): string {
 }
 
 /**
+ * Parse the address-group textarea. A group can be written as a header followed
+ * by addresses on subsequent lines (`Fast:` then `1.1.1.1`), or inline as
+ * `Fast: 1.1.1.1, 1.0.0.1`. The returned keys use the same normalized address
+ * form as Clean IP and geo caches.
+ */
+export function parseAddressGroups(entries: readonly string[] = []): Map<string, string> {
+    const groups = new Map<string, string>();
+    let activeGroup = '';
+
+    for (const entry of entries) {
+        for (const rawLine of String(entry ?? '').split(/\r?\n/u)) {
+            const line = rawLine.trim();
+            if (!line) continue;
+
+            const header = line.match(/^(.+?):\s*$/u);
+            if (header && !header[1].includes(':')) {
+                activeGroup = header[1].trim();
+                continue;
+            }
+
+            let group = activeGroup;
+            let addresses = line;
+            const inline = line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
+            if (inline && (inline[2].includes('.') || inline[2].includes('[') || /^[a-z0-9.-]+(?::\\d+)?$/iu.test(inline[2]))) {
+                group = inline[1].trim();
+                addresses = inline[2].trim();
+                activeGroup = group;
+            }
+
+            if (!group) continue;
+            addresses.split(/\s*,\s*/u).map(address => normalizeAddress(address)).filter(Boolean).forEach(address => {
+                groups.set(address, group);
+            });
+        }
+    }
+
+    return groups;
+}
+
+export function findAddressGroup(address: string | undefined, entries: readonly string[] = []): string | undefined {
+    if (!address) return undefined;
+    return parseAddressGroups(entries).get(normalizeAddress(address));
+}
+
+/**
  * Bare form of an address: IPv6 literals lose their `[...]` wrapper. Used as the
- * canonical key for the geo and latency caches so both stores agree, and as the
- * value ip-api is queried with.
+ * canonical key for geo, latency, and address-group caches.
  */
 export function normalizeAddress(address: string): string {
     const trimmed = (address || '').trim();
@@ -52,6 +107,7 @@ export interface NameContext {
     address?: string;
     geo?: GeoInfo;
     customName?: string;
+    group?: string;
     marker?: string;
     latency?: string;
     latencyAge?: string;
@@ -68,6 +124,9 @@ export interface NameContext {
     domain?: string;
     core?: string;
     kind?: string;
+    /** Stable identity for callers that have a more precise config key. */
+    identity?: string;
+    registry?: NameRegistry;
 }
 
 type TemplateNode =
@@ -77,7 +136,8 @@ type TemplateNode =
 
 // Tokens that legitimately render as an empty string instead of the `--`
 // placeholder, because "not set" is a meaningful state for them.
-const BLANK_OK = new Set(['MARKER', 'CHAIN']);
+const BLANK_OK = new Set(['MARKER', 'CHAIN', 'GROUP']);
+const KNOWN_TOKENS = new Set<string>(NAME_TEMPLATE_TOKENS);
 
 /**
  * Parse a template into text, token, and non-nested optional-section nodes.
@@ -135,6 +195,85 @@ function parseTemplate(template: string): TemplateNode[] | null {
     return parseTemplateSource(template, true);
 }
 
+/** Return actionable, source-positioned errors for the panel and API. */
+export function getNameTemplateDiagnostics(template: unknown): NameTemplateDiagnostic[] {
+    if (typeof template !== 'string') {
+        return [{
+            code: 'invalid-template',
+            message: 'Template must be text.',
+            start: 0,
+            end: 0
+        }];
+    }
+
+    const diagnostics: NameTemplateDiagnostic[] = [];
+    const add = (diagnostic: NameTemplateDiagnostic) => {
+        if (!diagnostics.some(item => item.code === diagnostic.code && item.start === diagnostic.start && item.end === diagnostic.end)) {
+            diagnostics.push(diagnostic);
+        }
+    };
+
+    let optionalDepth = 0;
+    for (let cursor = 0; cursor < template.length;) {
+        if (template.startsWith('[[', cursor)) {
+            if (optionalDepth > 0) {
+                add({ code: 'nested-optional', message: 'Optional sections cannot be nested.', start: cursor, end: cursor + 2 });
+            }
+            optionalDepth++;
+            cursor += 2;
+            continue;
+        }
+        if (template.startsWith(']]', cursor)) {
+            if (optionalDepth === 0) {
+                add({ code: 'unmatched-optional', message: 'Closing ]] has no matching [[.', start: cursor, end: cursor + 2 });
+            } else {
+                optionalDepth--;
+            }
+            cursor += 2;
+            continue;
+        }
+        if (template[cursor] === '{') {
+            const end = template.indexOf('}', cursor + 1);
+            if (template[cursor + 1] === '{') {
+                add({ code: 'nested-token', message: 'Tokens cannot be nested.', start: cursor, end: Math.min(template.length, (end === -1 ? cursor + 2 : end + 1)) });
+                cursor += 1;
+                continue;
+            }
+            if (end === -1) {
+                add({ code: 'unmatched-open', message: 'Opening { has no matching }.', start: cursor, end: cursor + 1 });
+                break;
+            }
+            const body = template.slice(cursor + 1, end);
+            if (!body) {
+                add({ code: 'empty-token', message: 'Token name cannot be empty.', start: cursor, end: end + 1 });
+            } else if (body.includes('{')) {
+                add({ code: 'nested-token', message: 'Tokens cannot be nested.', start: cursor, end: end + 1 });
+            } else if (!/^[A-Za-z0-9_]+$/.test(body)) {
+                add({ code: 'invalid-token', message: 'Token names may contain only letters, numbers, and underscores.', start: cursor, end: end + 1 });
+            } else if (!KNOWN_TOKENS.has(body.toUpperCase())) {
+                add({ code: 'unknown-token', message: `Unknown token {${body}}.`, start: cursor, end: end + 1 });
+            }
+            cursor = end + 1;
+            continue;
+        }
+        if (template[cursor] === '}') {
+            add({ code: 'unmatched-close', message: 'Closing } has no matching {.', start: cursor, end: cursor + 1 });
+        }
+        cursor++;
+    }
+
+    if (optionalDepth > 0) {
+        const start = template.lastIndexOf('[[');
+        add({ code: 'unmatched-optional', message: 'Opening [[ has no matching ]].', start: Math.max(0, start), end: Math.min(template.length, Math.max(0, start) + 2) });
+    }
+
+    if (parseTemplate(template) === null && !diagnostics.length) {
+        add({ code: 'invalid-template', message: 'Template syntax is invalid.', start: 0, end: template.length });
+    }
+
+    return diagnostics.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
 export function isValidNameTemplate(template: unknown): template is string {
     return typeof template === 'string' && parseTemplate(template) !== null;
 }
@@ -157,12 +296,6 @@ function collectTokens(nodes: TemplateNode[], output: Set<string>): void {
     });
 }
 
-/**
- * Which distinguishing facts a template already carries. Used by `uniquifyName`
- * to keep rendered names unique per config (clash proxy `name` and sing-box
- * outbound `tag` must be unique — duplicates silently break the proxy-groups /
- * chain wiring).
- */
 export function templateTokens(template: string): Set<string> {
     const parsed = parseTemplate(template);
     const tokens = new Set<string>();
@@ -200,6 +333,7 @@ function rawTokenValue(key: string, ctx: NameContext, geo?: GeoInfo): string | n
         case 'LATENCY_AGE': return ctx.latencyAge || '';
         case 'IP': return ctx.address || '';
         case 'IPNAME': return ctx.customName || '';
+        case 'GROUP': return ctx.group || '';
         case 'B': return ctx.brand || '';
         case 'F': return geo?.countryCode ? flagFromCode(geo.countryCode) : '';
         case 'D': return ctx.address || '';
@@ -246,23 +380,43 @@ function renderNodes(nodes: TemplateNode[], ctx: NameContext): string {
     }).join('');
 }
 
-/**
- * Render a config-name template against a context of resolved values.
- *
- * Tokens are case-insensitive. Optional blocks use `[[...]]` and disappear
- * when their tokens have no value. Unknown tokens still render as `--`, while
- * malformed brace/optional syntax returns an empty string without throwing.
- */
 export function renderName(template: string, ctx: NameContext): string {
     const parsed = parseTemplate(template);
     if (!parsed) return '';
     return renderNodes(parsed, ctx);
 }
 
+function splitGraphemes(value: string): string[] {
+    const segmenter = (Intl as typeof Intl & {
+        Segmenter?: new (locales?: string | string[], options?: { granularity: 'grapheme' }) => { segment(input: string): Iterable<{ segment: string }> };
+    }).Segmenter;
+    if (segmenter) {
+        return [...new segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(item => item.segment);
+    }
+
+    const result: string[] = [];
+    for (const char of Array.from(value)) {
+        const previous = result[result.length - 1];
+        if (previous && (previous.endsWith('\u200d') || /[\u0300-\u036f\uFE00-\uFE0F]/u.test(char))) {
+            result[result.length - 1] += char;
+        } else if (previous && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(previous) && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(char)) {
+            result[result.length - 1] += char;
+        } else {
+            result.push(char);
+        }
+    }
+    return result;
+}
+
+export function truncateName(value: string, maxLength?: number): string {
+    if (!maxLength || !Number.isInteger(maxLength) || maxLength < 1) return value;
+    return splitGraphemes(value).slice(0, maxLength).join('').trimEnd();
+}
+
 export function formatName(value: string, options: NameFormatOptions = {}): string {
     const mode = options.mode ?? 'readable';
     let result = value
-        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .replace(/[\u0000-\u001f\u007f]/gu, '')
         .replace(/\s+/gu, ' ')
         .trim();
 
@@ -283,17 +437,79 @@ export function formatName(value: string, options: NameFormatOptions = {}): stri
     const maxLength = Number.isInteger(options.maxLength) && (options.maxLength ?? 0) > 0
         ? options.maxLength!
         : undefined;
-    return maxLength && result.length > maxLength
-        ? result.slice(0, maxLength).trimEnd()
-        : result;
+    return truncateName(result, maxLength);
+}
+
+/** Remove characters that have structural meaning in a specific output. */
+export function sanitizeConfigName(value: string, target: 'tag' | 'uri' | 'filename' | 'remark' = 'tag'): string {
+    let result = value.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim();
+    if (target === 'filename') result = result.replace(/[\\/:*?"<>|]/gu, '_');
+    if (target === 'uri') result = result.replace(/[\r\n]/gu, ' ');
+    if (target === 'tag') result = result.replace(/[\\\t]/gu, ' ');
+    return result.trim();
+}
+
+function fnv1a(value: string): string {
+    let hash = 0x811c9dc5;
+    for (const char of value) {
+        hash ^= char.codePointAt(0) ?? 0;
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+export function stableNameKey(ctx: NameContext): string {
+    return ctx.identity ?? [
+        ctx.kind,
+        ctx.core,
+        ctx.proto,
+        normalizeAddress(ctx.address ?? ''),
+        ctx.port ?? '',
+        ctx.domain,
+        ctx.marker,
+        ctx.chain ? 'chain' : 'direct',
+        ctx.transport,
+        ctx.security,
+        ctx.customName,
+        ctx.group
+    ].map(value => String(value ?? '')).join('|');
+}
+
+export function stableNameFingerprint(ctx: NameContext): string {
+    return fnv1a(stableNameKey(ctx));
+}
+
+export function stableNameSuffix(ctx: NameContext): string {
+    return `~${stableNameFingerprint(ctx).slice(0, 8)}`;
+}
+
+export function nameSnapshotKey(template: string, ctx: NameContext): string {
+    return `nameSnapshot:${fnv1a(`${template}|${stableNameKey(ctx)}`)}`;
+}
+
+function missingIdentityDimensions(tokens: Set<string>, ctx: NameContext): string[] {
+    const missing: string[] = [];
+    const hasAddress = tokens.has('IP') || tokens.has('D');
+    if (ctx.address && !hasAddress) missing.push('address');
+    if (ctx.domain && ctx.domain !== ctx.address && !tokens.has('DOMAIN')) missing.push('domain');
+    if (ctx.port != null && !tokens.has('PORT')) missing.push('port');
+    if (ctx.proto && !tokens.has('PROTO')) missing.push('protocol');
+    if (ctx.chain && !tokens.has('CHAIN')) missing.push('chain');
+    if (ctx.marker && !tokens.has('MARKER')) missing.push('marker');
+    if (ctx.kind && !tokens.has('KIND')) missing.push('kind');
+    if (ctx.core && !tokens.has('CORE')) missing.push('core');
+    if (ctx.transport && !tokens.has('TRANSPORT')) missing.push('transport');
+    if (ctx.security && !tokens.has('SECURITY')) missing.push('security');
+    if (ctx.customName && !tokens.has('IPNAME')) missing.push('custom-name');
+    if (ctx.group && !tokens.has('GROUP')) missing.push('group');
+    return missing;
 }
 
 /**
- * Config names MUST be unique: clash keys proxies by `name`, sing-box keys
- * outbounds by `tag`, and both wire `proxy-groups` / chain detours by that
- * string. A geo-only template like `{FLAG}{COUNTRY}` renders identically for
- * every port, protocol, chain variant, and address, so omitted distinguishing
- * facts are appended automatically.
+ * Config names MUST be unique. Any identity dimension omitted from a template
+ * gets a human-readable hint and a stable hash. The hash is derived from the
+ * config identity rather than list order, so reordering addresses does not
+ * rename existing configs.
  */
 export function uniquifyName(
     rendered: string,
@@ -302,32 +518,51 @@ export function uniquifyName(
     options: NameFormatOptions = {}
 ): string {
     const tokens = templateTokens(template);
-    const suffix: string[] = [];
     const mode = options.mode ?? 'readable';
+    const missing = missingIdentityDimensions(tokens, ctx);
+    const suffix: string[] = [];
 
-    if (!tokens.has('CHAIN') && ctx.chain) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
-    const marker = (ctx.marker ?? '').trim();
-    if (!tokens.has('MARKER') && marker) suffix.push(marker);
-    if (!tokens.has('PROTO') && ctx.proto) suffix.push(ctx.proto);
-    if (!tokens.has('PORT') && ctx.port != null) suffix.push(String(ctx.port));
+    if (missing.includes('chain')) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
+    if (missing.includes('marker') && ctx.marker) suffix.push(ctx.marker.trim());
+    if (missing.includes('protocol') && ctx.proto) suffix.push(ctx.proto);
+    if (missing.includes('port') && ctx.port != null) suffix.push(String(ctx.port));
+    if (missing.length) suffix.push(stableNameSuffix(ctx));
 
-    const identifiesAddress = tokens.has('IP') || tokens.has('D');
-    if (!tokens.has('INDEX') && !identifiesAddress) suffix.push(`#${ctx.index}`);
-
-    const suffixText = formatName(suffix.join(' '), { mode });
     let base = formatName(rendered, { mode });
-    if (!suffixText) return formatName(base, options);
-
+    const suffixText = formatName(suffix.join(' '), { mode });
+    const separator = base && suffixText ? ' ' : '';
     const maxLength = Number.isInteger(options.maxLength) && (options.maxLength ?? 0) > 0
         ? options.maxLength!
         : undefined;
-    const separator = base ? ' ' : '';
-    if (maxLength) {
-        const available = Math.max(1, maxLength - separator.length - suffixText.length);
-        base = base.slice(0, available).trimEnd();
+
+    if (maxLength && suffixText) {
+        const available = Math.max(1, maxLength - splitGraphemes(`${separator}${suffixText}`).length);
+        base = truncateName(base, available);
     }
 
-    return formatName(`${base}${separator}${suffixText}`, options);
+    let candidate = sanitizeConfigName(formatName(`${base}${separator}${suffixText}`, { mode, maxLength }), 'tag');
+    if (!candidate) candidate = sanitizeConfigName(formatName(rendered, { mode, maxLength }), 'tag');
+
+    const registry = ctx.registry;
+    if (registry) {
+        const identitySuffix = stableNameSuffix(ctx);
+        let collision = 1;
+        while (registry.names.has(candidate)) {
+            collision++;
+            const suffixWithCollision = `${identitySuffix}-${collision}`;
+            const available = maxLength
+                ? Math.max(1, maxLength - splitGraphemes(` ${suffixWithCollision}`).length)
+                : undefined;
+            candidate = sanitizeConfigName(`${truncateName(formatName(rendered, { mode }), available)} ${suffixWithCollision}`, 'tag');
+        }
+        registry.names.add(candidate);
+    }
+
+    return candidate;
+}
+
+export function createNameRegistry(): NameRegistry {
+    return { names: new Set<string>() };
 }
 
 // Map a geo connection type to the readable tag shown in config names.
@@ -340,13 +575,77 @@ export function typeMap(geo?: GeoInfo | null): string {
     }
 }
 
-// Derive a flag emoji from a 2-letter ISO country code using regional indicator
-// symbols (U+1F1E6 + letter offset). Non-2-letter codes render empty.
+export interface NamePreviewRow {
+    label: string;
+    rawName: string;
+    finalName: string;
+}
+
+export interface NamePreviewResult {
+    diagnostics: NameTemplateDiagnostic[];
+    rows: NamePreviewRow[];
+    collisions: Array<{ name: string; labels: string[] }>;
+}
+
+const PREVIEW_CONTEXTS: Array<NameContext & { label: string }> = [
+    {
+        label: 'Frankfurt / VLESS', index: 1, address: '1.1.1.1', port: 443, countryCode: 'DE',
+        geo: { ip: '203.0.113.10', countryCode: 'DE', country: 'Germany', city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 2 * 60 * 60_000 },
+        latency: '42', latencyAge: '4m', marker: '', proto: 'VLESS', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal', identity: 'normal|xray|vless|1.1.1.1|443|example.com'
+    },
+    {
+        label: 'Frankfurt / Trojan', index: 1, address: '1.1.1.1', port: 443, countryCode: 'DE',
+        geo: { ip: '203.0.113.10', countryCode: 'DE', country: 'Germany', city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 2 * 60 * 60_000 },
+        latency: '38', latencyAge: '4m', marker: '', proto: 'Trojan', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal', identity: 'normal|sing-box|trojan|1.1.1.1|443|example.com'
+    },
+    {
+        label: 'Named clean IP', index: 2, address: '2.2.2.2', port: 8443, customName: 'Fast edge', group: 'Cloudflare Fast', countryCode: 'DE',
+        geo: { ip: '203.0.113.10', countryCode: 'DE', country: 'Germany', city: 'Frankfurt', region: 'Hesse', isp: 'Example CDN', asn: 'AS64500', type: 'hosting', cachedAt: Date.now() - 24 * 60 * 60_000 },
+        latency: '61', latencyAge: '18m', marker: 'C', proto: 'VLESS', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal', identity: 'normal|clash|vless|2.2.2.2|8443|example.com'
+    },
+    {
+        label: 'Fragment chain', index: 3, address: 'example.com', port: 443, countryCode: 'US',
+        geo: { ip: '203.0.113.10', countryCode: 'US', country: 'United States', city: 'Ashburn', region: 'Virginia', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 3 * 60 * 60_000 },
+        marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain', identity: 'chain|xray|vless|example.com|443|example.com'
+    },
+    {
+        label: 'Warp endpoint', index: 4, address: '162.159.192.1', port: 2408, countryCode: 'US',
+        geo: { ip: '162.159.192.1', countryCode: 'US', country: 'United States', city: 'Seattle', region: 'Washington', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 5 * 60 * 60_000 },
+        latency: '77', latencyAge: '1h', marker: 'Warp', proto: 'Warp', egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp', identity: 'warp|wireguard|162.159.192.1|2408'
+    }
+];
+
+export function buildNamePreview(template: string, options: NameFormatOptions = {}): NamePreviewResult {
+    const diagnostics = getNameTemplateDiagnostics(template);
+    if (diagnostics.length || !isValidNameTemplate(template)) {
+        return { diagnostics, rows: [], collisions: [] };
+    }
+
+    const registry = createNameRegistry();
+    const rows = PREVIEW_CONTEXTS.map(({ label, ...context }) => {
+        const rawName = formatName(renderName(template, context), options);
+        const finalName = uniquifyName(rawName, template, { ...context, registry }, options) || '(empty → classic name)';
+        return { label, rawName, finalName };
+    });
+
+    const grouped = new Map<string, string[]>();
+    rows.forEach(row => {
+        const labels = grouped.get(row.rawName || '(empty)') ?? [];
+        labels.push(row.label);
+        grouped.set(row.rawName || '(empty)', labels);
+    });
+
+    return {
+        diagnostics: [],
+        rows,
+        collisions: [...grouped.entries()]
+            .filter(([, labels]) => labels.length > 1)
+            .map(([name, labels]) => ({ name, labels }))
+    };
+}
+
 function flagFromCode(code?: string): string {
     const c = (code || '').toUpperCase();
     if (!/^[A-Z]{2}$/.test(c)) return '';
-    const letters = c.split('');
-    return String.fromCodePoint(
-        ...letters.map((ch) => 0x1f1e6 + (ch.charCodeAt(0) - 0x41)),
-    );
+    return String.fromCodePoint(...c.split('').map(ch => 0x1f1e6 + ch.charCodeAt(0) - 0x41));
 }

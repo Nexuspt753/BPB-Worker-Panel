@@ -2,7 +2,7 @@ import { PanelSettings } from '#types/settings';
 import { isBase64, isDomain, isHex, isIPv4, isIPv4CIDR, isIPv6, isIPv6CIDR, isValidUrl } from '@utils';
 import { isValidUUID } from '@common';
 import { getGlobals } from '@settings';
-import { isValidNameTemplate, NAME_TEMPLATE_TOKENS, splitIpAndName, templateTokens } from '@cores/naming';
+import { getNameTemplateDiagnostics, isValidNameTemplate, NAME_TEMPLATE_TOKENS, parseAddressGroups, splitIpAndName, templateTokens } from '@cores/naming';
 
 export interface ValidationError {
     field: string;
@@ -37,6 +37,7 @@ const validators = [
     validateRemoteSettings,
     validateNameTemplate,
     validateNameOptions,
+    validateNameAddressGroups,
     validateLatencyInterval
 ];
 
@@ -229,10 +230,13 @@ function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
         });
     }
 
-    if (!isValidNameTemplate(template)) {
+    const diagnostics = getNameTemplateDiagnostics(template);
+    if (diagnostics.length || !isValidNameTemplate(template)) {
         errors.push({
             field: 'Config Name Template',
-            message: ['Use complete tokens like {IP}; nested, empty, or unmatched braces are not allowed.']
+            message: diagnostics.length
+                ? diagnostics.map(diagnostic => `${diagnostic.message} (characters ${diagnostic.start + 1}-${Math.max(diagnostic.start + 1, diagnostic.end)})`)
+                : ['Use complete tokens like {IP}; nested, empty, or unmatched braces are not allowed.']
         });
         return;
     }
@@ -274,6 +278,34 @@ function validateNameOptions(form: PanelSettings, errors: ValidationError[]) {
         errors.push({
             field: 'Config Name Geo Lookups',
             message: ['Choose automatic, cached-only, or disabled geo lookups.']
+        });
+    }
+}
+
+function validateNameAddressGroups(form: PanelSettings, errors: ValidationError[]) {
+    const entries = Array.isArray(form.nameAddressGroups) ? form.nameAddressGroups : [];
+    const groups = parseAddressGroups(entries);
+    const invalids: string[] = [];
+
+    entries.forEach(entry => {
+        String(entry ?? '').split(/\r?\n/u).map(line => line.trim()).filter(Boolean).forEach(line => {
+            if (/^.+?:\s*$/u.test(line)) return;
+            const separator = line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
+            const addresses = separator ? separator[2] : line;
+            addresses.split(/\s*,\s*/u).map(value => value.trim()).filter(Boolean).forEach(address => {
+                if (!isValidHost(address) && !isValidHost(address, true)) invalids.push(address);
+            });
+        });
+    });
+
+    if (invalids.length || (entries.length > 0 && groups.size === 0)) {
+        errors.push({
+            field: 'Config Name Address Groups',
+            message: [
+                'Use a group header such as "Fast:", followed by IPs/domains, or "Fast: 1.1.1.1, 1.0.0.1".',
+                'Invalid values are:\n',
+                ...invalids.map(value => `+ ${value}`)
+            ]
         });
     }
 }

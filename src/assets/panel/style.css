@@ -297,10 +297,28 @@ h4 {
     margin-bottom: var(--space-sm);
 }
 
-.name-preview-card small {
+.name-preview-card small,
+.field-help {
     display: block;
     color: var(--color-text-muted);
     margin-top: var(--space-sm);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+}
+
+.name-template-diagnostics {
+    margin-top: var(--space-sm);
+    color: #fbbf24;
+    font-size: var(--font-size-sm);
+}
+
+.name-template-diagnostics:empty {
+    display: none;
+}
+
+.name-template-invalid {
+    border-color: #fbbf24 !important;
+    box-shadow: 0 0 0 2px rgb(251 191 36 / 20%);
 }
 
 .name-preview-line {

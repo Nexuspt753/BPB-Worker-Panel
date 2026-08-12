@@ -80,6 +80,8 @@ export interface KvSettings {
     nameFormat: NameFormat;
     nameMaxLength: number;
     nameGeoMode: NameGeoMode;
+    nameFreezeGeo: boolean;
+    nameAddressGroups: string[];
     remoteSettings: string;
     panelVersion: string;
 }

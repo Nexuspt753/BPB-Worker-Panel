@@ -231,6 +231,8 @@ let kvSettings: KvSettings = {
     nameFormat: 'readable',
     nameMaxLength: 0,
     nameGeoMode: 'auto',
+    nameFreezeGeo: false,
+    nameAddressGroups: [],
     latencyAutoTest: false,
     latencyIntervalMin: 60,
     warpRemoteDNS: '1.1.1.1',

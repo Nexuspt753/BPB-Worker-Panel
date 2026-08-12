@@ -1,10 +1,12 @@
 import { base64DecodeUtf8, base64EncodeUtf8 } from '@common';
 import { getSettings } from '@settings';
+import { createNameRegistry } from './naming';
 import {
     generateRemark,
     generateWsPath,
     getConfigAddresses,
-    getConfiguredName,
+    getConfiguredNameWithMetadata,
+    getConfiguredNameSnapshot,
     getProtocols,
     isBase64,
     isDomain,
@@ -69,6 +71,7 @@ export async function getURLConfigs(env: Env) {
 
     let VLConfs = '', TRConfs = '', chainConfig = '';
     let proxyIndex = 1;
+    const nameRegistry = createNameRegistry();
     const domains = [mainDomain].concatIf(!!customDomain, customDomain);
     const protocols = getProtocols();
 
@@ -86,13 +89,13 @@ export async function getURLConfigs(env: Env) {
                 if ((port === upstreamPort) !== (addr === upstreamServer)) continue;
 
                 if (protocols.includes(_VL_)) {
-                    const remark = await generateRemark(env, proxyIndex, port, addr, _VL_, domain, false, false, client || 'xray');
+                    const remark = await generateRemark(env, proxyIndex, port, addr, _VL_, domain, false, false, client || 'xray', nameRegistry);
                     const vlConfig = buildConfig(_VL_, addr, port, host, sni, remark);
                     VLConfs += `${vlConfig}\n`;
                 }
 
                 if (protocols.includes(_TR_)) {
-                    const remark = await generateRemark(env, proxyIndex, port, addr, _TR_, domain, false, false, client || 'xray');
+                    const remark = await generateRemark(env, proxyIndex, port, addr, _TR_, domain, false, false, client || 'xray', nameRegistry);
                     const trConfig = buildConfig(_TR_, addr, port, host, sni, remark);
                     TRConfs += `${trConfig}\n`;
                 }
@@ -103,13 +106,14 @@ export async function getURLConfigs(env: Env) {
     }
 
     if (chainProxy) {
-        const chainName = getConfiguredName('💦 Chain proxy 🔗', {
+        const chainName = await getConfiguredNameSnapshot(env, '💦 Chain proxy 🔗', {
             index: 1,
             marker: 'C',
             proto: 'Chain',
             chain: true,
             core: client || 'raw',
-            kind: 'Chain'
+            kind: 'Chain',
+            registry: nameRegistry
         });
         const chainRemark = `#${encodeURIComponent(chainName)}`;
         if (chainProxy.startsWith('socks') || chainProxy.startsWith('http')) {
@@ -125,7 +129,7 @@ export async function getURLConfigs(env: Env) {
     }
 
     const customText = customConfigs.join('\n') + await fetchCustomSubs(customSubs);
-    const customConfs = renameImportedConfigs(customText);
+    const customConfs = await renameImportedConfigs(customText, env, nameRegistry);
     const configs = base64EncodeUtf8(VLConfs + TRConfs + chainConfig + customConfs);
 
     return new Response(configs, {
@@ -141,20 +145,22 @@ export async function getURLConfigs(env: Env) {
     });
 }
 
-function renameImportedConfigs(text: string): string {
+async function renameImportedConfigs(text: string, env: Env, nameRegistry: ReturnType<typeof createNameRegistry>): Promise<string> {
     const { nameTemplate } = getSettings();
     if (!nameTemplate?.trim()) return text;
 
     const supportedProtocols = new Set(['vless:', 'trojan:', 'vmess:', 'ss:', 'socks:', 'socks5:', 'http:']);
+    const lines = text.split(/\r?\n/);
     let index = 1;
 
-    return text.split(/\r?\n/).map(line => {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const line = lines[lineIndex];
         const value = line.trim();
-        if (!value) return line;
+        if (!value) continue;
 
         try {
             const url = new URL(value);
-            if (!supportedProtocols.has(url.protocol)) return line;
+            if (!supportedProtocols.has(url.protocol)) continue;
 
             const host = url.hostname;
             const protocol = url.protocol.slice(0, -1).toUpperCase();
@@ -168,7 +174,7 @@ function renameImportedConfigs(text: string): string {
                 importedName = url.hash.slice(1);
             }
 
-            const generated = getConfiguredName(importedName || `Imported ${index}`, {
+            const generated = await getConfiguredNameWithMetadata(env, importedName || `Imported ${index}`, {
                 index,
                 address: host,
                 port: Number(url.port) || undefined,
@@ -180,15 +186,18 @@ function renameImportedConfigs(text: string): string {
                 transport,
                 security,
                 family,
-                domain: host
+                domain: host,
+                registry: nameRegistry
             });
             index++;
             url.hash = generated;
-            return url.href;
+            lines[lineIndex] = url.href;
         } catch {
-            return line;
+            // Keep unsupported or malformed imported lines byte-for-byte intact.
         }
-    }).join('\n');
+    }
+
+    return lines.join('\n');
 }
 
 async function fetchCustomSubs(subs: string[]): Promise<string> {

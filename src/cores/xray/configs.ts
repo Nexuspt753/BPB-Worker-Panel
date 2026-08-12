@@ -10,9 +10,12 @@ import {
     buildFreedomOutbound
 } from './outbounds';
 
+import { createNameRegistry, type NameRegistry } from '../naming';
+
 import {
     getConfigAddresses,
     getConfiguredName,
+    getConfiguredNameWithMetadata,
     generateRemark,
     isDomain,
     isHttps,
@@ -143,7 +146,9 @@ async function addBestPingConfigs(
     proxyOutbounds: Outbound[],
     chainOutbounds: Outbound[],
     isFragment: boolean,
-    isCustomDomain: boolean
+    isCustomDomain: boolean,
+    registry: NameRegistry,
+    env: Env
 ) {
     totalAddresses = [...new Set(totalAddresses)];
     const isChain = !!chainOutbounds.length;
@@ -153,14 +158,15 @@ async function addBestPingConfigs(
     const configType = `${fragmentSign}${customDomainSign}`;
 
     const fallbackRemark = `💦 ${chainSign}Best Ping ${configType}🚀`;
-    const remark = getConfiguredName(fallbackRemark, {
+    const remark = await getConfiguredNameWithMetadata(env, fallbackRemark, {
         index: 1,
         address: totalAddresses[0],
         marker: configType.trim(),
         proto: 'Best Ping',
         chain: isChain,
         kind: 'Best Ping',
-        core: 'xray'
+        core: 'xray',
+        registry
     });
     const outbounds = [
         ...chainOutbounds,
@@ -170,7 +176,7 @@ async function addBestPingConfigs(
     const config = await buildConfig(remark, outbounds, true, isChain, true, false, false, totalAddresses);
 
     if (isChain) {
-        await addBestPingConfigs(configs, totalAddresses, proxyOutbounds, [], isFragment, isCustomDomain);
+        await addBestPingConfigs(configs, totalAddresses, proxyOutbounds, [], isFragment, isCustomDomain, registry, env);
     }
 
     configs.push(config);
@@ -178,6 +184,8 @@ async function addBestPingConfigs(
 
 async function addBestFragmentConfigs(
     configs: Config[],
+    registry: NameRegistry,
+    env: Env,
     chainProxy?: Outbound
 ) {
     const { mainDomain, fragmentDelayMin, fragmentDelayMax } = getSettings();
@@ -213,7 +221,7 @@ async function addBestFragmentConfigs(
 
     const chainSign = isChain ? '🔗 ' : '';
     const fallbackRemark = `💦 ${chainSign}Smart Fragment 🧠`;
-    const remark = getConfiguredName(fallbackRemark, {
+    const remark = await getConfiguredNameWithMetadata(env, fallbackRemark, {
         index: 1,
         address: mainDomain,
         domain: mainDomain,
@@ -221,7 +229,8 @@ async function addBestFragmentConfigs(
         proto: _VL_CAP_,
         chain: isChain,
         kind: 'Smart Fragment',
-        core: 'xray'
+        core: 'xray',
+        registry
     });
     const config = await buildConfig(
         remark,
@@ -236,13 +245,13 @@ async function addBestFragmentConfigs(
     );
 
     if (chainProxy) {
-        await addBestFragmentConfigs(configs);
+        await addBestFragmentConfigs(configs, registry, env);
     }
 
     configs.push(config);
 }
 
-async function addWorkerlessConfigs(configs: Config[]) {
+async function addWorkerlessConfigs(configs: Config[], registry: NameRegistry, env: Env) {
     const tlsFragment = buildFreedomOutbound(true, false, 'proxy');
     const udpNoise = buildFreedomOutbound(false, true, 'udp-noise');
     const httpFragment = buildFreedomOutbound(true, false, 'http-fragment', undefined, undefined, '1-1');
@@ -252,19 +261,21 @@ async function addWorkerlessConfigs(configs: Config[]) {
         udpNoise
     ];
 
-    const cfDnsRemark = getConfiguredName('💦 1 - Serverless 🌟', {
+    const cfDnsRemark = await getConfiguredNameWithMetadata(env, '💦 1 - Serverless 🌟', {
         index: 1,
         marker: 'Serverless',
         kind: 'Serverless',
         core: 'xray',
-        domain: 'cloudflare.com'
+        domain: 'cloudflare.com',
+        registry
     });
-    const googleDnsRemark = getConfiguredName('💦 2 - Serverless 🌟', {
+    const googleDnsRemark = await getConfiguredNameWithMetadata(env, '💦 2 - Serverless 🌟', {
         index: 2,
         marker: 'Serverless',
         kind: 'Serverless',
         core: 'xray',
-        domain: 'dns.google'
+        domain: 'dns.google',
+        registry
     });
 
     const cfDnsConfig = await buildConfig(
@@ -299,6 +310,7 @@ async function addWorkerlessConfigs(configs: Config[]) {
 }
 
 export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise<Response> {
+    const nameRegistry = createNameRegistry();
     const {
         chainProxy,
         ports,
@@ -338,12 +350,12 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
                     const proxy = modifyOutbound(outbound, `proxy-${index}`);
                     proxies.push(proxy);
 
-                    const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false, 'xray');
+                    const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false, 'xray', nameRegistry);
                     const config = await buildConfig(remark, [outbound], false, false, false, false, false, [host]);
                     configs.push(config);
 
                     if (chainOutbound) {
-                        const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true, 'xray');
+                        const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true, 'xray', nameRegistry);
                         const chainConfig = await buildConfig(remark, [chainOutbound, outbound], false, true, false, false, false, [host]);
                         configs.push(chainConfig);
 
@@ -358,12 +370,12 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
         }
 
         const isCustomDomain = domain === customDomain;
-        await addBestPingConfigs(configs, totalHosts, proxies, chains, isFragment, isCustomDomain);
+        await addBestPingConfigs(configs, totalHosts, proxies, chains, isFragment, isCustomDomain, nameRegistry, env);
     }
 
     if (isFragment) {
-        await addBestFragmentConfigs(configs, chainOutbound);
-        await addWorkerlessConfigs(configs);
+        await addBestFragmentConfigs(configs, nameRegistry, env, chainOutbound);
+        await addWorkerlessConfigs(configs, nameRegistry, env);
     }
 
     const fileName = isFragment ? 'fragment' : 'normal';
@@ -381,7 +393,8 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
 
 export async function getXrWarpConfigs(
     isPro: boolean,
-    isKnocker: boolean
+    isKnocker: boolean,
+    env?: Env
 ): Promise<Response> {
     const { warpEndpoints } = getSettings();
     const warpAccounts = getWarpAccounts();
@@ -391,17 +404,19 @@ export async function getXrWarpConfigs(
     const proxies: Outbound[] = [];
     const chains: Outbound[] = [];
     const outboundDomains: string[] = [];
+    const nameRegistry = createNameRegistry();
 
     for (const [index, endpoint] of warpEndpoints.entries()) {
-        const { host } = parseHostPort(endpoint);
+        const { host, port } = parseHostPort(endpoint);
         if (isDomain(host)) outboundDomains.push(host);
 
         const warpOutbound = buildWarpOutbound(warpAccounts[0], endpoint, false, isPro, isKnocker);
         const wowOutbound = buildWarpOutbound(warpAccounts[1], endpoint, true, isPro, isKnocker);
 
-        const warpRemark = getConfiguredName(`💦 ${index + 1} - Warp${proIndicator}🇮🇷`, {
+        const warpContext = {
             index: index + 1,
             address: host,
+            port,
             marker: 'Warp',
             proto: 'Warp',
             kind: isPro ? 'Warp Pro' : 'Warp',
@@ -409,11 +424,13 @@ export async function getXrWarpConfigs(
             domain: host,
             security: 'None',
             transport: 'WireGuard',
-            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
-        });
-        const wowRemark = getConfiguredName(`💦 ${index + 1} - WoW${proIndicator}🌍`, {
+            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4',
+            registry: nameRegistry
+        };
+        const wowContext = {
             index: index + 1,
             address: host,
+            port,
             marker: 'WoW',
             proto: 'Warp',
             chain: true,
@@ -422,8 +439,15 @@ export async function getXrWarpConfigs(
             domain: host,
             security: 'None',
             transport: 'WireGuard',
-            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
-        });
+            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4',
+            registry: nameRegistry
+        };
+        const warpRemark = env
+            ? await getConfiguredNameWithMetadata(env, `💦 ${index + 1} - Warp${proIndicator}🇮🇷`, warpContext)
+            : getConfiguredName(`💦 ${index + 1} - Warp${proIndicator}🇮🇷`, warpContext);
+        const wowRemark = env
+            ? await getConfiguredNameWithMetadata(env, `💦 ${index + 1} - WoW${proIndicator}🌍`, wowContext)
+            : getConfiguredName(`💦 ${index + 1} - WoW${proIndicator}🌍`, wowContext);
 
         const warpConfig = await buildConfig(
             warpRemark,
@@ -456,23 +480,46 @@ export async function getXrWarpConfigs(
         chains.push(chain);
     }
 
-    const warpBestPingRemark = getConfiguredName(`💦 Warp${proIndicator}- Best Ping 🚀`, {
+    const warpBestPingRemark = env
+        ? await getConfiguredNameWithMetadata(env, `💦 Warp${proIndicator}- Best Ping 🚀`, {
         index: 1,
         address: outboundDomains[0],
         marker: 'Warp',
         proto: 'Warp',
         kind: 'Warp Best Ping',
-        core: 'xray'
-    });
-    const wowBestPingRemark = getConfiguredName(`💦 WoW${proIndicator}- Best Ping 🚀`, {
+        core: 'xray',
+        registry: nameRegistry
+    })
+        : getConfiguredName(`💦 Warp${proIndicator}- Best Ping 🚀`, {
+            index: 1,
+            address: outboundDomains[0],
+            marker: 'Warp',
+            proto: 'Warp',
+            kind: 'Warp Best Ping',
+            core: 'xray',
+            registry: nameRegistry
+        });
+    const wowBestPingRemark = env
+        ? await getConfiguredNameWithMetadata(env, `💦 WoW${proIndicator}- Best Ping 🚀`, {
         index: 1,
         address: outboundDomains[0],
         marker: 'WoW',
         proto: 'Warp',
         chain: true,
         kind: 'WoW Best Ping',
-        core: 'xray'
-    });
+        core: 'xray',
+        registry: nameRegistry
+    })
+        : getConfiguredName(`💦 WoW${proIndicator}- Best Ping 🚀`, {
+            index: 1,
+            address: outboundDomains[0],
+            marker: 'WoW',
+            proto: 'Warp',
+            chain: true,
+            kind: 'WoW Best Ping',
+            core: 'xray',
+            registry: nameRegistry
+        });
 
     const warpBestPing = await buildConfig(
         warpBestPingRemark,

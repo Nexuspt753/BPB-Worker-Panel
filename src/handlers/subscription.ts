@@ -59,16 +59,16 @@ export async function handleSubscriptions(request: Request, env: Env, ctx: Execu
         case 'warp':
             switch (client) {
                 case 'xray':
-                    return getXrWarpConfigs(false, false);
+                    return getXrWarpConfigs(false, false, env);
 
                 case 'sing-box':
-                    return getSbWarpConfig();
+                    return getSbWarpConfig(env);
 
                 case 'clash':
-                    return getClWarpConfig(false);
+                    return getClWarpConfig(false, env);
 
                 case 'wireguard':
-                    return getWireguardConfigs(false);
+                    return getWireguardConfigs(false, env);
 
                 default:
                     break;
@@ -77,16 +77,16 @@ export async function handleSubscriptions(request: Request, env: Env, ctx: Execu
         case 'warp-pro':
             switch (client) {
                 case 'xray':
-                    return getXrWarpConfigs(true, false);
+                    return getXrWarpConfigs(true, false, env);
 
                 case 'xray-knocker':
-                    return getXrWarpConfigs(true, true);
+                    return getXrWarpConfigs(true, true, env);
 
                 case 'clash':
-                    return getClWarpConfig(true);
+                    return getClWarpConfig(true, env);
 
                 case 'amnezia':
-                    return getWireguardConfigs(true);
+                    return getWireguardConfigs(true, env);
 
                 default:
                     break;
@@ -111,6 +111,7 @@ export async function handleSubscriptions(request: Request, env: Env, ctx: Execu
  */
 const SWEEP_PATHS = new Set(['normal', 'fragment', 'raw']);
 const MIN_SWEEP_INTERVAL_MIN = 10;
+let sweepClaimUntil = 0;
 
 async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string): Promise<void> {
     if (!env?.kv || !SWEEP_PATHS.has(path)) return;
@@ -122,11 +123,18 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
     // permanently true, sweeping on every single subscription request.
     const interval = Math.max(MIN_SWEEP_INTERVAL_MIN, Number(latencyIntervalMin) || MIN_SWEEP_INTERVAL_MIN);
 
+    const now = Date.now();
+    if (sweepClaimUntil > now) return;
+
     const last = Number(await env.kv.get('latencySweepAt') ?? 0);
-    const due = !Number.isFinite(last) || last <= 0 || Date.now() - last >= interval * 60_000;
+    const due = !Number.isFinite(last) || last <= 0 || now - last >= interval * 60_000;
     if (!due) return;
 
-    await env.kv.put('latencySweepAt', String(Date.now()));
+    // KV has no compare-and-swap operation. This short-lived in-memory claim
+    // prevents concurrent requests in the same isolate from starting duplicate
+    // sweeps; the KV timestamp still throttles separate isolates.
+    sweepClaimUntil = now + interval * 60_000;
+    await env.kv.put('latencySweepAt', String(now));
 
     const domains = [mainDomain].concat(customDomain ? [customDomain] : []);
     const targets: string[] = [];

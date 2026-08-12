@@ -43,6 +43,7 @@ export async function setLatency(env: Env, address: string, ms: number): Promise
 }
 
 const TIMEOUT_MS = 5000;
+const MAX_SWEEP_CONCURRENCY = 4;
 
 export interface Probe {
     /** The request completed and the peer answered something. */
@@ -107,9 +108,19 @@ export async function checkLatency(address: string): Promise<{ ok: boolean; elap
  * settings may already have been replaced by a concurrent request.
  */
 export async function sweepLatency(env: Env, targets: string[]): Promise<void> {
-    const unique = [...new Set(targets.filter(Boolean))];
-    await Promise.allSettled(unique.map(async (addr) => {
-        const { reachable, elapsedMs } = await probeAddress(addr);
-        if (reachable) await setLatency(env, addr, elapsedMs);
-    }));
+    const unique = [...new Set(targets.filter(Boolean).map(normalizeAddress).filter(Boolean))];
+    let cursor = 0;
+    const worker = async () => {
+        while (cursor < unique.length) {
+            const address = unique[cursor++];
+            const { healthy, elapsedMs } = await probeAddress(address);
+            // A reachable non-Cloudflare host is not a useful proxy latency
+            // sample; keep the last good measurement instead of poisoning it.
+            if (healthy) await setLatency(env, address, elapsedMs);
+        }
+    };
+
+    await Promise.allSettled(
+        Array.from({ length: Math.min(MAX_SWEEP_CONCURRENCY, unique.length) }, worker)
+    );
 }
