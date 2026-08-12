@@ -566,9 +566,57 @@
                             <div class="template-autocomplete">
                                 <input type="text" id="nameTemplate" name="nameTemplate" autocomplete="off"
                                     maxlength="200"
-                                    placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME} (egress: {EGRESS_IP})">
+                                    placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} [[ - {IPNAME} ]]">
                                 <ul id="nameTemplateSuggestions" class="template-suggestions" hidden></ul>
                             </div>
+                        </div>
+                        <div class="form-control">
+                            <label for="nameTemplatePreset">Template preset</label>
+                            <div class="template-preset-row">
+                                <select id="nameTemplatePreset">
+                                    <option value="">Choose a preset</option>
+                                    <option value="compact">Compact</option>
+                                    <option value="detailed">Detailed</option>
+                                    <option value="latency">Latency ranking</option>
+                                    <option value="protocol">Protocol-aware</option>
+                                </select>
+                                <button type="button" id="applyNamePreset" class="button">Apply</button>
+                            </div>
+                        </div>
+                        <div class="form-control">
+                            <label for="nameFormat">Name formatting</label>
+                            <div class="select-wrapper">
+                                <select id="nameFormat" name="nameFormat">
+                                    <option value="readable">Readable</option>
+                                    <option value="compact">Compact</option>
+                                    <option value="ascii">ASCII-safe</option>
+                                </select>
+                                <span class="material-symbols-rounded">keyboard_arrow_down</span>
+                            </div>
+                        </div>
+                        <div class="form-control">
+                            <label for="nameMaxLength">Maximum name length (0 = unlimited)</label>
+                            <div><input type="number" id="nameMaxLength" name="nameMaxLength" min="0" max="200" step="1"></div>
+                        </div>
+                        <div class="form-control">
+                            <label for="nameGeoMode">Geo privacy</label>
+                            <div class="select-wrapper">
+                                <select id="nameGeoMode" name="nameGeoMode">
+                                    <option value="auto">Automatic lookup with cache</option>
+                                    <option value="local">Cached data only</option>
+                                    <option value="disabled">Disable geo lookups</option>
+                                </select>
+                                <span class="material-symbols-rounded">keyboard_arrow_down</span>
+                            </div>
+                        </div>
+                        <div class="name-preview-card" aria-live="polite">
+                            <strong>Live examples</strong>
+                            <div id="nameTemplatePreview">Set a template to preview generated names.</div>
+                            <small>Use [[optional text]] to omit a section when its tokens have no value. GEO_AGE and LATENCY_AGE show cache age.</small>
+                        </div>
+                        <div class="name-preview-card" aria-live="polite">
+                            <strong>Collision preview</strong>
+                            <div id="nameTemplateCollisions">No collisions analyzed.</div>
                         </div>
                         <div class="form-control">
                             <label for="latencyAutoTest">Auto-test config IPs latency</label>

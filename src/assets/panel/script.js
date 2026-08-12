@@ -1,9 +1,17 @@
 const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
 const nameTemplateTokens = [
-    'FLAG', 'COUNTRY', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'LATENCY',
-    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'B', 'F', 'D', 'C', 'EGRESS_IP'
+    'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE',
+    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN',
+    'EGRESS_IP', 'B', 'F', 'D', 'C', 'SECURITY', 'TRANSPORT', 'SNI', 'HOST', 'FAMILY',
+    'DOMAIN', 'CORE', 'KIND'
 ];
+const nameTemplatePresets = {
+    compact: '{FLAG} {IP}:{PORT}',
+    detailed: '{MARKER}{FLAG}{COUNTRY} - {IP} [[ - {IPNAME} ]]',
+    latency: '[[{LATENCY}ms | ]]{FLAG} {IP}',
+    protocol: '{PROTO} {MARKER}{IP}:{PORT}'
+};
 const proxyForm = document.getElementById('configForm');
 const [
     selectElements,
@@ -44,7 +52,12 @@ function initTemplateAutocomplete() {
         const before = input.value.slice(0, caret);
         const lastOpen = before.lastIndexOf('{');
         if (lastOpen === -1) return null;
-        if (before.lastIndexOf('}') > lastOpen) return null;
+        const lastClose = before.lastIndexOf('}');
+        if (lastClose > lastOpen) return null;
+        // Do not offer a completion inside a nested or still-open token such
+        // as `{{IP`; the backend will reject that structure as malformed.
+        const previousOpen = before.lastIndexOf('{', lastOpen - 1);
+        if (previousOpen > lastClose) return null;
         const fragment = before.slice(lastOpen + 1);
         // Tokens are [A-Za-z0-9_] (EGRESS_IP has an underscore), so the partial
         // fragment must allow the same characters or the list closes mid-token.
@@ -118,7 +131,206 @@ function initTemplateAutocomplete() {
     });
 }
 
+function previewTokenValue(token, context) {
+    const values = {
+        FLAG: context.flag,
+        COUNTRY: context.country,
+        COUNTRY_CODE: context.countryCode,
+        CITY: context.city,
+        REGION: context.region,
+        ISP: context.isp,
+        ASN: context.asn,
+        TYPE: context.type,
+        GEO_AGE: context.geoAge,
+        LATENCY: context.latency,
+        LATENCY_AGE: context.latencyAge,
+        IP: context.address,
+        IPNAME: context.customName,
+        INDEX: String(context.index),
+        PORT: String(context.port),
+        MARKER: context.marker,
+        PROTO: context.proto,
+        CHAIN: context.chain ? '🔗' : '',
+        EGRESS_IP: context.egressIp,
+        B: 'BPB',
+        F: context.flag,
+        D: context.address,
+        C: context.country,
+        SECURITY: context.security,
+        TRANSPORT: context.transport,
+        SNI: context.sni,
+        HOST: context.host,
+        FAMILY: context.family,
+        DOMAIN: context.domain,
+        CORE: context.core,
+        KIND: context.kind
+    };
+    return Object.prototype.hasOwnProperty.call(values, token) ? values[token] : undefined;
+}
+
+function previewTemplateValueIsPresent(token, context) {
+    const value = previewTokenValue(token, context);
+    return value !== undefined && value !== null && String(value) !== '';
+}
+
+function renderPreviewTemplate(template, context) {
+    if (typeof template !== 'string' || template.includes('[[[') || template.includes(']]]') || /\[\[\s*\]\]/.test(template)) return null;
+    if (template.includes('[[') && !template.includes(']]')) return null;
+    if (template.includes(']]') && !template.includes('[[')) return null;
+
+    let source = template.replace(/\[\[([^\[\]]*)\]\]/g, (_match, body) => {
+        const tokens = [...body.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(match => match[1].toUpperCase());
+        return tokens.some(token => previewTemplateValueIsPresent(token, context)) ? body : '';
+    });
+
+    source = source.replace(/\{([A-Za-z0-9_]+)\}/g, (_match, token) => {
+        const value = previewTokenValue(token.toUpperCase(), context);
+        if (value === undefined || value === null || value === '') {
+            return ['MARKER', 'CHAIN'].includes(token.toUpperCase()) ? '' : '--';
+        }
+        return String(value);
+    });
+
+    return /[{}[\]]/.test(source) ? null : source;
+}
+
+function formatPreviewName(value, mode, maxLength) {
+    let result = String(value || '')
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (mode === 'compact') {
+        result = result.replace(/\s*([|·])\s*/g, '$1').replace(/([|·])(?:\1)+/g, '$1').replace(/\s+-\s+/g, '-');
+    } else if (mode === 'ascii') {
+        result = result.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '').trim();
+    }
+    const limit = Number(maxLength);
+    return Number.isInteger(limit) && limit > 0 ? result.slice(0, limit).trimEnd() : result;
+}
+
+function previewUniqueName(rendered, template, context, mode, maxLength) {
+    const tokens = new Set([...template.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(match => match[1].toUpperCase()));
+    const suffix = [];
+    if (!tokens.has('CHAIN') && context.chain) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
+    if (!tokens.has('MARKER') && context.marker) suffix.push(context.marker.trim());
+    if (!tokens.has('PROTO') && context.proto) suffix.push(context.proto);
+    if (!tokens.has('PORT') && context.port) suffix.push(String(context.port));
+    if (!tokens.has('INDEX') && !tokens.has('IP') && !tokens.has('D')) suffix.push(`#${context.index}`);
+    const base = formatPreviewName(rendered, mode, 0);
+    const suffixText = formatPreviewName(suffix.join(' '), mode, 0);
+    const separator = base && suffixText ? ' ' : '';
+    const limit = Number(maxLength);
+    const available = Number.isInteger(limit) && limit > 0
+        ? Math.max(1, limit - separator.length - suffixText.length)
+        : undefined;
+    const shortened = available ? base.slice(0, available).trimEnd() : base;
+    return formatPreviewName(`${shortened}${separator}${suffixText}`, mode, maxLength);
+}
+
+const templatePreviewContexts = [
+    {
+        label: 'Frankfurt / VLESS', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
+        city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '42', latencyAge: '4m',
+        customName: '', marker: '', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal'
+    },
+    {
+        label: 'Frankfurt / Trojan', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
+        city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '38', latencyAge: '4m',
+        customName: '', marker: '', proto: 'Trojan', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal'
+    },
+    {
+        label: 'Named clean IP', index: 2, address: '2.2.2.2', port: 8443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
+        city: 'Frankfurt', region: 'Hesse', isp: 'Example CDN', asn: 'AS64500', type: 'Hosting', geoAge: '1d', latency: '61', latencyAge: '18m',
+        customName: 'Fast edge', marker: 'C', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal'
+    },
+    {
+        label: 'Fragment chain', index: 3, address: 'example.com', port: 443, flag: '🇺🇸', country: 'United States', countryCode: 'US',
+        city: 'Ashburn', region: 'Virginia', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '3h', latency: '', latencyAge: '',
+        customName: '', marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain'
+    },
+    {
+        label: 'Warp endpoint', index: 4, address: '162.159.192.1', port: 2408, flag: '🇺🇸', country: 'United States', countryCode: 'US',
+        city: 'Seattle', region: 'Washington', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '5h', latency: '77', latencyAge: '1h',
+        customName: '', marker: 'Warp', proto: 'Warp', chain: false, egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', sni: '', host: '', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp'
+    }
+];
+
+function updateNameTemplatePreview() {
+    const preview = document.getElementById('nameTemplatePreview');
+    const collisions = document.getElementById('nameTemplateCollisions');
+    const input = document.getElementById('nameTemplate');
+    if (!preview || !collisions || !input) return;
+
+    const template = input.value.trim();
+    const mode = document.getElementById('nameFormat')?.value || 'readable';
+    const maxLength = document.getElementById('nameMaxLength')?.value || 0;
+    if (!template) {
+        preview.textContent = 'Set a template to preview generated names.';
+        collisions.textContent = 'No collisions analyzed.';
+        return;
+    }
+
+    const rawNames = templatePreviewContexts.map(context => renderPreviewTemplate(template, context));
+    if (rawNames.some(name => name === null)) {
+        preview.textContent = 'Invalid template syntax. Close every token and use [[optional sections]].';
+        collisions.textContent = 'Collision analysis paused until the template is valid.';
+        return;
+    }
+
+    const previewLines = templatePreviewContexts.map((context, index) => {
+        const name = previewUniqueName(rawNames[index], template, context, mode, maxLength) || '(empty → classic name)';
+        const line = document.createElement('div');
+        line.className = 'name-preview-line';
+        line.textContent = `${context.label}: ${name}`;
+        return line;
+    });
+    preview.replaceChildren(...previewLines);
+
+    const grouped = new Map();
+    rawNames.forEach((name, index) => {
+        const key = formatPreviewName(name, mode, maxLength) || '(empty)';
+        const entries = grouped.get(key) || [];
+        entries.push(templatePreviewContexts[index].label);
+        grouped.set(key, entries);
+    });
+    const duplicateEntries = [...grouped.entries()].filter(([, labels]) => labels.length > 1);
+    if (!duplicateEntries.length) {
+        collisions.textContent = 'No collisions in the representative examples.';
+        return;
+    }
+
+    const intro = document.createElement('div');
+    intro.textContent = 'The raw template produces duplicate names; the backend adds protocol, port, chain, marker, or index suffixes when omitted.';
+    const list = document.createElement('ul');
+    duplicateEntries.forEach(([name, labels]) => {
+        const item = document.createElement('li');
+        item.textContent = `${name}: ${labels.join(' + ')}`;
+        list.appendChild(item);
+    });
+    collisions.replaceChildren(intro, list);
+}
+
+function initNameTemplateTools() {
+    const input = document.getElementById('nameTemplate');
+    const preset = document.getElementById('nameTemplatePreset');
+    const apply = document.getElementById('applyNamePreset');
+    if (!input || !preset || !apply) return;
+
+    apply.addEventListener('click', () => {
+        const value = nameTemplatePresets[preset.value];
+        if (!value) return;
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    ['input', 'change'].forEach(type => input.addEventListener(type, updateNameTemplatePreview));
+    ['nameFormat', 'nameMaxLength', 'nameGeoMode'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateNameTemplatePreview);
+        document.getElementById(id)?.addEventListener('change', updateNameTemplatePreview);
+    });
+}
+
 initTemplateAutocomplete();
+initNameTemplateTools();
 getUsage();
 initPanel();
 fetchIPInfo();
@@ -267,6 +479,7 @@ function renderPanel(proxySettings, tgSettings, subscriptions, clients) {
     proxyForm.addEventListener('input', handleProxyFormChanges);
     proxyForm.addEventListener('change', handleProxyFormChanges);
     handleFragmentMode();
+    updateNameTemplatePreview();
 
     if (tgSettings) {
         const tgForm = document.getElementById('telegramForm');

@@ -116,7 +116,7 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
     if (!env?.kv || !SWEEP_PATHS.has(path)) return;
 
     const { latencyAutoTest, latencyIntervalMin, mainDomain, customDomain } = getSettings();
-    if (!latencyAutoTest) return;
+    if (latencyAutoTest !== true) return;
 
     // Clamp: a hand-crafted settings PUT could otherwise set 0 and turn "due"
     // permanently true, sweeping on every single subscription request.

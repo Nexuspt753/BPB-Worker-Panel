@@ -4,9 +4,12 @@ import {
     generateRemark,
     generateWsPath,
     getConfigAddresses,
+    getConfiguredName,
     getProtocols,
     isBase64,
+    isDomain,
     isHttps,
+    isIPv4,
     selectSniHost
 } from '@utils';
 
@@ -83,13 +86,13 @@ export async function getURLConfigs(env: Env) {
                 if ((port === upstreamPort) !== (addr === upstreamServer)) continue;
 
                 if (protocols.includes(_VL_)) {
-                    const remark = await generateRemark(env, proxyIndex, port, addr, _VL_, domain, false, false);
+                    const remark = await generateRemark(env, proxyIndex, port, addr, _VL_, domain, false, false, client || 'xray');
                     const vlConfig = buildConfig(_VL_, addr, port, host, sni, remark);
                     VLConfs += `${vlConfig}\n`;
                 }
 
                 if (protocols.includes(_TR_)) {
-                    const remark = await generateRemark(env, proxyIndex, port, addr, _TR_, domain, false, false);
+                    const remark = await generateRemark(env, proxyIndex, port, addr, _TR_, domain, false, false, client || 'xray');
                     const trConfig = buildConfig(_TR_, addr, port, host, sni, remark);
                     TRConfs += `${trConfig}\n`;
                 }
@@ -100,7 +103,15 @@ export async function getURLConfigs(env: Env) {
     }
 
     if (chainProxy) {
-        let chainRemark = `#${encodeURIComponent('💦 Chain proxy 🔗')}`;
+        const chainName = getConfiguredName('💦 Chain proxy 🔗', {
+            index: 1,
+            marker: 'C',
+            proto: 'Chain',
+            chain: true,
+            core: client || 'raw',
+            kind: 'Chain'
+        });
+        const chainRemark = `#${encodeURIComponent(chainName)}`;
         if (chainProxy.startsWith('socks') || chainProxy.startsWith('http')) {
             const regex = /^(?:socks|http):\/\/([^@]+)@/;
             const isUserPass = chainProxy.match(regex);
@@ -113,7 +124,8 @@ export async function getURLConfigs(env: Env) {
         }
     }
 
-    const customConfs = customConfigs.join('\n') + await fetchCustomSubs(customSubs);
+    const customText = customConfigs.join('\n') + await fetchCustomSubs(customSubs);
+    const customConfs = renameImportedConfigs(customText);
     const configs = base64EncodeUtf8(VLConfs + TRConfs + chainConfig + customConfs);
 
     return new Response(configs, {
@@ -127,6 +139,56 @@ export async function getURLConfigs(env: Env) {
             'DNS': remoteDNS
         }
     });
+}
+
+function renameImportedConfigs(text: string): string {
+    const { nameTemplate } = getSettings();
+    if (!nameTemplate?.trim()) return text;
+
+    const supportedProtocols = new Set(['vless:', 'trojan:', 'vmess:', 'ss:', 'socks:', 'socks5:', 'http:']);
+    let index = 1;
+
+    return text.split(/\r?\n/).map(line => {
+        const value = line.trim();
+        if (!value) return line;
+
+        try {
+            const url = new URL(value);
+            if (!supportedProtocols.has(url.protocol)) return line;
+
+            const host = url.hostname;
+            const protocol = url.protocol.slice(0, -1).toUpperCase();
+            const transport = url.searchParams.get('type')?.toUpperCase() || undefined;
+            const security = url.searchParams.get('security')?.toUpperCase() || 'NONE';
+            const family = host.includes(':') ? 'IPv6' : isIPv4(host) ? 'IPv4' : isDomain(host) ? 'Domain' : '';
+            let importedName = '';
+            try {
+                importedName = decodeURIComponent(url.hash.slice(1));
+            } catch {
+                importedName = url.hash.slice(1);
+            }
+
+            const generated = getConfiguredName(importedName || `Imported ${index}`, {
+                index,
+                address: host,
+                port: Number(url.port) || undefined,
+                customName: importedName || undefined,
+                marker: 'I',
+                proto: protocol,
+                kind: 'Imported',
+                core: 'raw',
+                transport,
+                security,
+                family,
+                domain: host
+            });
+            index++;
+            url.hash = generated;
+            return url.href;
+        } catch {
+            return line;
+        }
+    }).join('\n');
 }
 
 async function fetchCustomSubs(subs: string[]): Promise<string> {

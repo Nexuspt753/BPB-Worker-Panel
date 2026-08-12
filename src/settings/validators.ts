@@ -2,7 +2,7 @@ import { PanelSettings } from '#types/settings';
 import { isBase64, isDomain, isHex, isIPv4, isIPv4CIDR, isIPv6, isIPv6CIDR, isValidUrl } from '@utils';
 import { isValidUUID } from '@common';
 import { getGlobals } from '@settings';
-import { splitIpAndName, templateTokens } from '@cores/naming';
+import { isValidNameTemplate, NAME_TEMPLATE_TOKENS, splitIpAndName, templateTokens } from '@cores/naming';
 
 export interface ValidationError {
     field: string;
@@ -36,6 +36,7 @@ const validators = [
     validateExtSubs,
     validateRemoteSettings,
     validateNameTemplate,
+    validateNameOptions,
     validateLatencyInterval
 ];
 
@@ -206,11 +207,7 @@ function validateCleanIPs(form: PanelSettings, errors: ValidationError[]) {
 }
 
 const NAME_TEMPLATE_MAX = 200;
-const KNOWN_TOKENS = new Set([
-    'FLAG', 'COUNTRY', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'LATENCY',
-    'IP', 'IPNAME', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
-    'B', 'F', 'D', 'C'
-]);
+const KNOWN_TOKENS = new Set<string>(NAME_TEMPLATE_TOKENS);
 
 function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
     const template = form.nameTemplate;
@@ -232,6 +229,14 @@ function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
         });
     }
 
+    if (!isValidNameTemplate(template)) {
+        errors.push({
+            field: 'Config Name Template',
+            message: ['Use complete tokens like {IP}; nested, empty, or unmatched braces are not allowed.']
+        });
+        return;
+    }
+
     const unknown = [...templateTokens(template)].filter(token => !KNOWN_TOKENS.has(token));
     if (unknown.length) {
         errors.push({
@@ -245,8 +250,36 @@ function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
     }
 }
 
+function validateNameOptions(form: PanelSettings, errors: ValidationError[]) {
+    const nameFormat = form.nameFormat ?? 'readable';
+    const nameMaxLength = form.nameMaxLength ?? 0;
+    const nameGeoMode = form.nameGeoMode ?? 'auto';
+
+    if (!['readable', 'compact', 'ascii'].includes(nameFormat)) {
+        errors.push({
+            field: 'Config Name Format',
+            message: ['Choose readable, compact, or ASCII-safe formatting.']
+        });
+    }
+
+    const maxLength = Number(nameMaxLength);
+    if (!Number.isInteger(maxLength) || maxLength < 0 || maxLength > 200) {
+        errors.push({
+            field: 'Config Name Length',
+            message: ['Use 0 for unlimited or a whole number between 1 and 200.']
+        });
+    }
+
+    if (!['auto', 'local', 'disabled'].includes(nameGeoMode)) {
+        errors.push({
+            field: 'Config Name Geo Lookups',
+            message: ['Choose automatic, cached-only, or disabled geo lookups.']
+        });
+    }
+}
+
 function validateLatencyInterval(form: PanelSettings, errors: ValidationError[]) {
-    if (!form.latencyAutoTest) return;
+    if (form.latencyAutoTest !== true) return;
     const interval = Number(form.latencyIntervalMin);
 
     if (!Number.isInteger(interval) || interval < 10 || interval > 1440) {

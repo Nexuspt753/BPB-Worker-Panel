@@ -76,6 +76,10 @@ export interface KvSettings {
     latencyAutoTest: boolean;
     latencyIntervalMin: number;
     nameTemplate: string;             // e.g. "{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}"
+    nameTemplateVersion: number;
+    nameFormat: NameFormat;
+    nameMaxLength: number;
+    nameGeoMode: NameGeoMode;
     remoteSettings: string;
     panelVersion: string;
 }
@@ -134,6 +138,8 @@ export interface ReqSettings {
 }
 
 export type LogLevel = 'none' | 'warning' | 'error' | 'info' | 'debug';
+export type NameFormat = 'readable' | 'compact' | 'ascii';
+export type NameGeoMode = 'auto' | 'local' | 'disabled';
 export type FragmentMode = 'custom' | 'low' | 'medium' | 'high';
 export type FragmentPacket = 'tlshello' | '1-1' | '1-2' | '1-3' | '1-5';
 export type Fingerprint =

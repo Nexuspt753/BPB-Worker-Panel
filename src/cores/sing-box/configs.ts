@@ -1,5 +1,5 @@
 import { Outbound, WireguardEndpoint, Config } from '#types/sing-box';
-import { getConfigAddresses, generateRemark, isHttps, getProtocols } from '@utils';
+import { getConfigAddresses, getConfiguredName, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
 import { buildChainOutbound, buildUrlTest, buildWarpOutbound, buildWebsocketOutbound } from './outbounds.js';
 import { getSettings, getWarpAccounts } from '@settings';
 import { buildRoutingRules } from './routing';
@@ -119,7 +119,7 @@ export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<
                 for (const host of hosts) {
                     if ((port === upstreamPort) !== (host === upstreamServer)) continue;
 
-                    const tag = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false);
+                    const tag = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false, 'sing-box');
                     const outbound = buildWebsocketOutbound(protocol, tag, host, port, domain, isFragment);
                     outbounds.push(outbound);
                     
@@ -130,7 +130,7 @@ export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<
                     }
 
                     if (isChain) {
-                        const chainTag = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true);
+                        const chainTag = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true, 'sing-box');
                         const chain = structuredClone(chainOutbound);
                         chain.tag = chainTag;
                         chain.detour = tag;
@@ -181,10 +181,36 @@ export async function getSbWarpConfig(): Promise<Response> {
     };
 
     warpEndpoints.forEach((endpoint, index) => {
-        const warpTag = `💦 ${index + 1}. Warp 🇮🇷`;
+        const { host, port } = parseHostPort(endpoint);
+        const warpTag = getConfiguredName(`💦 ${index + 1}. Warp 🇮🇷`, {
+            index: index + 1,
+            address: host,
+            port,
+            marker: 'Warp',
+            proto: 'Warp',
+            kind: 'Warp',
+            core: 'sing-box',
+            domain: host,
+            security: 'None',
+            transport: 'WireGuard',
+            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
+        });
         tagGroup['💦 Warp - Best Ping 🚀'].push(warpTag);
 
-        const wowTag = `💦 ${index + 1}. WoW 🌍`;
+        const wowTag = getConfiguredName(`💦 ${index + 1}. WoW 🌍`, {
+            index: index + 1,
+            address: host,
+            port,
+            marker: 'WoW',
+            proto: 'Warp',
+            chain: true,
+            kind: 'WoW',
+            core: 'sing-box',
+            domain: host,
+            security: 'None',
+            transport: 'WireGuard',
+            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
+        });
         tagGroup['💦 WoW - Best Ping 🚀'].push(wowTag);
 
         const warpOutbound = buildWarpOutbound(warpAccounts[0], warpTag, endpoint);

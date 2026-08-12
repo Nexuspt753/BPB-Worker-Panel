@@ -4,6 +4,7 @@ import { fetchWarpAccounts } from '@api/warp';
 import { safeError } from '@common';
 import { getKvSettings } from '@settings';
 import { setCustomDomain } from '@main';
+import { NAME_TEMPLATE_VERSION, migrateNameTemplate } from '@cores/naming';
 
 export async function getDataset(env: Env): Promise<{
     settings: KvSettings,
@@ -16,9 +17,18 @@ export async function getDataset(env: Env): Promise<{
     try {
         settings = await env.kv.get('proxySettings', { type: 'json' });
         warpAccounts = await env.kv.get('warpAccounts', { type: 'json' });
-        if (!settings) {
-            await env.kv.put('proxySettings', JSON.stringify(kvSettings));
-            settings = kvSettings;
+        const storedSettings = settings;
+        settings = normalizeSettings(storedSettings, kvSettings);
+
+        // Add newly introduced naming fields and migrate older token casing once.
+        // The merge keeps existing user settings intact while making old KV data
+        // safe for the current panel and subscription builders.
+        if (!storedSettings
+            || storedSettings.nameTemplateVersion !== NAME_TEMPLATE_VERSION
+            || !('nameFormat' in storedSettings)
+            || !('nameMaxLength' in storedSettings)
+            || !('nameGeoMode' in storedSettings)) {
+            await env.kv.put('proxySettings', JSON.stringify(settings));
         }
 
         if (!warpAccounts) {
@@ -161,6 +171,10 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
             ['remoteSettings'],
             ['customConfigs'],
             ['nameTemplate'],
+            ['nameTemplateVersion'],
+            ['nameFormat'],
+            ['nameMaxLength'],
+            ['nameGeoMode'],
             ['latencyAutoTest'],
             ['latencyIntervalMin']
         ];
@@ -174,6 +188,11 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
 
         const updatedSettings: KvSettings = {
             ...Object.fromEntries(entries),
+            nameTemplate: migrateNameTemplate(
+                newSettings.nameTemplate ?? currentSettings?.nameTemplate ?? kvSettings.nameTemplate,
+                Number(newSettings.nameTemplateVersion ?? currentSettings?.nameTemplateVersion ?? 1)
+            ),
+            nameTemplateVersion: NAME_TEMPLATE_VERSION,
             panelVersion: VERSION
         };
 
@@ -183,6 +202,20 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
         console.log(error);
         throw new Error(`An error occurred while updating KV: ${safeError(error)}`);
     }
+}
+
+function normalizeSettings(stored: Partial<KvSettings> | null, defaults: KvSettings): KvSettings {
+    const source = stored ?? {};
+    const version = Number(source.nameTemplateVersion ?? 1);
+    return {
+        ...defaults,
+        ...source,
+        nameTemplate: migrateNameTemplate(source.nameTemplate ?? defaults.nameTemplate, version),
+        nameTemplateVersion: NAME_TEMPLATE_VERSION,
+        nameFormat: source.nameFormat ?? defaults.nameFormat,
+        nameMaxLength: source.nameMaxLength ?? defaults.nameMaxLength,
+        nameGeoMode: source.nameGeoMode ?? defaults.nameGeoMode
+    } as KvSettings;
 }
 
 async function getDnsParams(dns: string): Promise<DnsHost> {

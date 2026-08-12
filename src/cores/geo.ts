@@ -7,8 +7,9 @@ export interface GeoInfo {
     region?: string;           // "Tehran Province"
     city?: string;             // "Tehran"
     isp?: string;              // "Hamrah Aval"
-    asn?: string;              // "AS197207"
+    asn?: string;                // "AS197207"
     type?: 'hosting' | 'mobile' | 'residential';  // derived from proxy/hosting/mobile flags
+    cachedAt?: number;           // timestamp of the successful lookup
 }
 
 const GEO_URL = 'http://ip-api.com/json/';
@@ -23,7 +24,11 @@ const TIMEOUT_MS = 5000;
 interface FailMarker { failed: true }
 type CacheEntry = GeoInfo | FailMarker;
 
-export async function resolveGeo(env: Env, address: string): Promise<GeoInfo | null> {
+export async function resolveGeo(
+    env: Env,
+    address: string,
+    options: { cacheOnly?: boolean } = {}
+): Promise<GeoInfo | null> {
     const ip = normalizeAddress(address);
     if (!ip) return null;
     const key = `${KV_PREFIX}${ip}`;
@@ -34,6 +39,8 @@ export async function resolveGeo(env: Env, address: string): Promise<GeoInfo | n
     } catch (e) {
         console.error(e);
     }
+
+    if (options.cacheOnly) return null;
 
     try {
         const res = await fetch(
@@ -75,6 +82,7 @@ export async function resolveGeo(env: Env, address: string): Promise<GeoInfo | n
             isp: data.isp,
             asn: data.as,
             type: data.hosting || data.proxy ? 'hosting' : data.mobile ? 'mobile' : 'residential',
+            cachedAt: Date.now(),
         };
 
         try {

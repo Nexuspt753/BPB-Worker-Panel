@@ -7,20 +7,26 @@ export { splitIpAndName, cleanIpHost } from './naming';
 
 const LATENCY_PREFIX = 'latency:';
 export const LATENCY_TTL = 60 * 60 * 24; // 24h
-interface LatencyEntry { ms: number; measuredAt: number; }
+export interface LatencyEntry { ms: number; measuredAt: number; }
 
 // Keyed on the bare address so the latency store and the geo cache agree on
 // IPv6 (`latency:2606:...`, never `latency:[2606:...]`).
 const latencyKey = (address: string) => `${LATENCY_PREFIX}${normalizeAddress(address)}`;
 
-export async function getLatency(env: Env, address: string): Promise<number | null> {
+export async function getLatencyRecord(env: Env, address: string): Promise<LatencyEntry | null> {
     try {
         const rec = await env.kv.get(latencyKey(address), 'json') as LatencyEntry | null;
-        return rec && typeof rec.ms === 'number' ? rec.ms : null;
+        if (!rec || typeof rec.ms !== 'number' || typeof rec.measuredAt !== 'number') return null;
+        return rec;
     } catch (e) {
         console.error(e);
         return null;
     }
+}
+
+export async function getLatency(env: Env, address: string): Promise<number | null> {
+    const rec = await getLatencyRecord(env, address);
+    return rec?.ms ?? null;
 }
 
 export async function setLatency(env: Env, address: string, ms: number): Promise<void> {

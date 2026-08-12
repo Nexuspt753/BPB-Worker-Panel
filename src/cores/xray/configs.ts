@@ -12,6 +12,7 @@ import {
 
 import {
     getConfigAddresses,
+    getConfiguredName,
     generateRemark,
     isDomain,
     isHttps,
@@ -151,7 +152,16 @@ async function addBestPingConfigs(
     const customDomainSign = isCustomDomain ? 'D ' : '';
     const configType = `${fragmentSign}${customDomainSign}`;
 
-    const remark = `💦 ${chainSign}Best Ping ${configType}🚀`;
+    const fallbackRemark = `💦 ${chainSign}Best Ping ${configType}🚀`;
+    const remark = getConfiguredName(fallbackRemark, {
+        index: 1,
+        address: totalAddresses[0],
+        marker: configType.trim(),
+        proto: 'Best Ping',
+        chain: isChain,
+        kind: 'Best Ping',
+        core: 'xray'
+    });
     const outbounds = [
         ...chainOutbounds,
         ...proxyOutbounds
@@ -202,8 +212,19 @@ async function addBestFragmentConfigs(
     });
 
     const chainSign = isChain ? '🔗 ' : '';
+    const fallbackRemark = `💦 ${chainSign}Smart Fragment 🧠`;
+    const remark = getConfiguredName(fallbackRemark, {
+        index: 1,
+        address: mainDomain,
+        domain: mainDomain,
+        marker: 'F',
+        proto: _VL_CAP_,
+        chain: isChain,
+        kind: 'Smart Fragment',
+        core: 'xray'
+    });
     const config = await buildConfig(
-        `💦 ${chainSign}Smart Fragment 🧠`,
+        remark,
         outbounds,
         true,
         isChain,
@@ -231,8 +252,23 @@ async function addWorkerlessConfigs(configs: Config[]) {
         udpNoise
     ];
 
+    const cfDnsRemark = getConfiguredName('💦 1 - Serverless 🌟', {
+        index: 1,
+        marker: 'Serverless',
+        kind: 'Serverless',
+        core: 'xray',
+        domain: 'cloudflare.com'
+    });
+    const googleDnsRemark = getConfiguredName('💦 2 - Serverless 🌟', {
+        index: 2,
+        marker: 'Serverless',
+        kind: 'Serverless',
+        core: 'xray',
+        domain: 'dns.google'
+    });
+
     const cfDnsConfig = await buildConfig(
-        `💦 1 - Serverless 🌟`,
+        cfDnsRemark,
         outbounds,
         false,
         false,
@@ -246,7 +282,7 @@ async function addWorkerlessConfigs(configs: Config[]) {
     );
 
     const googleDnsConfig = await buildConfig(
-        `💦 2 - Serverless 🌟`,
+        googleDnsRemark,
         outbounds,
         false,
         false,
@@ -302,12 +338,12 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
                     const proxy = modifyOutbound(outbound, `proxy-${index}`);
                     proxies.push(proxy);
 
-                    const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false);
+                    const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, false, 'xray');
                     const config = await buildConfig(remark, [outbound], false, false, false, false, false, [host]);
                     configs.push(config);
 
                     if (chainOutbound) {
-                        const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true);
+                        const remark = await generateRemark(env, protocolIndex, port, host, protocol, domain, isFragment, true, 'xray');
                         const chainConfig = await buildConfig(remark, [chainOutbound, outbound], false, true, false, false, false, [host]);
                         configs.push(chainConfig);
 
@@ -363,8 +399,34 @@ export async function getXrWarpConfigs(
         const warpOutbound = buildWarpOutbound(warpAccounts[0], endpoint, false, isPro, isKnocker);
         const wowOutbound = buildWarpOutbound(warpAccounts[1], endpoint, true, isPro, isKnocker);
 
+        const warpRemark = getConfiguredName(`💦 ${index + 1} - Warp${proIndicator}🇮🇷`, {
+            index: index + 1,
+            address: host,
+            marker: 'Warp',
+            proto: 'Warp',
+            kind: isPro ? 'Warp Pro' : 'Warp',
+            core: 'xray',
+            domain: host,
+            security: 'None',
+            transport: 'WireGuard',
+            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
+        });
+        const wowRemark = getConfiguredName(`💦 ${index + 1} - WoW${proIndicator}🌍`, {
+            index: index + 1,
+            address: host,
+            marker: 'WoW',
+            proto: 'Warp',
+            chain: true,
+            kind: isPro ? 'WoW Pro' : 'WoW',
+            core: 'xray',
+            domain: host,
+            security: 'None',
+            transport: 'WireGuard',
+            family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
+        });
+
         const warpConfig = await buildConfig(
-            `💦 ${index + 1} - Warp${proIndicator}🇮🇷`,
+            warpRemark,
             [warpOutbound],
             false,
             false,
@@ -375,7 +437,7 @@ export async function getXrWarpConfigs(
         );
 
         const wowConfig = await buildConfig(
-            `💦 ${index + 1} - WoW${proIndicator}🌍`,
+            wowRemark,
             [wowOutbound, warpOutbound],
             false,
             true,
@@ -394,8 +456,26 @@ export async function getXrWarpConfigs(
         chains.push(chain);
     }
 
+    const warpBestPingRemark = getConfiguredName(`💦 Warp${proIndicator}- Best Ping 🚀`, {
+        index: 1,
+        address: outboundDomains[0],
+        marker: 'Warp',
+        proto: 'Warp',
+        kind: 'Warp Best Ping',
+        core: 'xray'
+    });
+    const wowBestPingRemark = getConfiguredName(`💦 WoW${proIndicator}- Best Ping 🚀`, {
+        index: 1,
+        address: outboundDomains[0],
+        marker: 'WoW',
+        proto: 'Warp',
+        chain: true,
+        kind: 'WoW Best Ping',
+        core: 'xray'
+    });
+
     const warpBestPing = await buildConfig(
-        `💦 Warp${proIndicator}- Best Ping 🚀`,
+        warpBestPingRemark,
         [...proxies],
         true,
         false,
@@ -406,7 +486,7 @@ export async function getXrWarpConfigs(
     );
 
     const wowBestPing = await buildConfig(
-        `💦 WoW${proIndicator}- Best Ping 🚀`,
+        wowBestPingRemark,
         [...chains, ...proxies],
         true,
         true,

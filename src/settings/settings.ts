@@ -1,4 +1,5 @@
 import { getDataset } from '@kv';
+import { NAME_TEMPLATE_VERSION } from '@cores/naming';
 import {
     KvSettings,
     ReqSettings,
@@ -226,6 +227,10 @@ let kvSettings: KvSettings = {
     customSubs: [],
     customConfigs: [],
     nameTemplate: '', // off by default: classic names until the user sets a template
+    nameTemplateVersion: NAME_TEMPLATE_VERSION,
+    nameFormat: 'readable',
+    nameMaxLength: 0,
+    nameGeoMode: 'auto',
     latencyAutoTest: false,
     latencyIntervalMin: 60,
     warpRemoteDNS: '1.1.1.1',

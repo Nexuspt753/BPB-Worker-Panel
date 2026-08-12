@@ -1,5 +1,6 @@
 import { HttpStatus, respond, safeError } from '@common';
 import { getSettings, getWarpAccounts } from '@settings';
+import { getConfiguredName, isDomain, parseHostPort } from '@utils';
 import JSZip from 'jszip';
 
 export async function getWireguardConfigs(isPro: boolean): Promise<Response> {
@@ -41,7 +42,22 @@ export async function getWireguardConfigs(isPro: boolean): Promise<Response> {
                 'PersistentKeepalive = 25'
             ].join('\n');
 
-            zip.file(`${_project_}-Warp-${index + 1}.conf`, conf);
+            const { host, port } = parseHostPort(endpoint);
+            const configuredName = getConfiguredName(`${_project_}-Warp-${index + 1}`, {
+                index: index + 1,
+                address: host,
+                port,
+                marker: isPro ? 'Warp Pro' : 'Warp',
+                proto: 'WireGuard',
+                kind: isPro ? 'Warp Pro' : 'Warp',
+                core: isPro ? 'amnezia' : 'wireguard',
+                domain: host,
+                security: 'None',
+                transport: 'WireGuard',
+                family: host.includes(':') ? 'IPv6' : isDomain(host) ? 'Domain' : 'IPv4'
+            });
+            const fileName = configuredName.replace(/[\\/:*?"<>|]/gu, '_').trim() || `${_project_}-Warp-${index + 1}`;
+            zip.file(`${fileName}.conf`, conf);
         });
 
         const zipBlob = await zip.generateAsync({ type: 'blob' });

@@ -2,8 +2,8 @@ import { getSettings } from '@settings';
 import { base64DecodeUtf8, safeError } from '@common';
 import { UpstreamProxy } from '#types/settings';
 import { resolveGeo, type GeoInfo } from './geo';
-import { renderName, uniquifyName, normalizeAddress as normalize, cleanIpHost, splitIpAndName, type NameContext } from './naming';
-import { getLatency } from './latency';
+import { renderName, uniquifyName, templateTokens, normalizeAddress as normalize, cleanIpHost, splitIpAndName, formatCacheAge, type NameContext } from './naming';
+import { getLatencyRecord } from './latency';
 
 // In-isolate cache for geo/latency lookups: the same address repeats across
 // ports, protocols and chain variants of a single render. Entries are keyed by
@@ -98,6 +98,19 @@ export async function getConfigAddresses(domain: string, isFragment: boolean): P
     return [...new Set(addrs.concatIf(!isFragment, customCdnAddrs).filter(Boolean))];
 }
 
+/** Render a configured name for config types that do not have a dial address. */
+export function getConfiguredName(fallback: string, context: NameContext): string {
+    const { nameTemplate, nameFormat, nameMaxLength } = getSettings();
+    if (!nameTemplate || !nameTemplate.trim()) return fallback;
+
+    const rendered = renderName(nameTemplate, context);
+    if (!rendered.trim() || rendered.trim() === '--') return fallback;
+
+    const mode = nameFormat === 'compact' || nameFormat === 'ascii' ? nameFormat : 'readable';
+    const maxLength = Number.isInteger(nameMaxLength) && nameMaxLength > 0 ? nameMaxLength : undefined;
+    return uniquifyName(rendered, nameTemplate, context, { mode, maxLength });
+}
+
 export async function generateRemark(
     env: Env,
     index: number,
@@ -106,14 +119,18 @@ export async function generateRemark(
     protocol: string,
     domain: string,
     isFragment: boolean,
-    isChain: boolean
+    isChain: boolean,
+    core = ''
 ): Promise<string> {
     const {
         cleanIPs,
         customCdnAddrs,
         customDomain,
         upstreamParams: { upstreamServer },
-        nameTemplate
+        nameTemplate,
+        latencyAutoTest,
+        nameGeoMode,
+        httpsPorts
     } = getSettings();
 
     const chainSign = isChain ? '🔗 ' : '';
@@ -129,12 +146,11 @@ export async function generateRemark(
         ? addressType = 'Clean IP'
         : addressType = isDomain(address) ? 'Domain' : isIPv4(address) ? 'IPv4' : isIPv6(address) ? 'IPv6' : '';
 
-    // Upstream proxy: keep existing hardcoded remark (no geo, no template).
-    if (address === upstreamServer) {
-        return `💦 ${index}. ${chainSign}${protoSign} ${configType}- Upstream Proxy`;
-    }
-
-    const fallback = `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
+    // Keep the classic upstream label as the fallback, while still allowing a
+    // configured template to name it consistently with the other addresses.
+    const fallback = address === upstreamServer
+        ? `💦 ${index}. ${chainSign}${protoSign} ${configType}- Upstream Proxy`
+        : `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
 
     // Route through the naming engine only when the user set a template;
     // otherwise fall back to the classic remark with zero extra lookups.
@@ -146,18 +162,42 @@ export async function generateRemark(
             if (name) ipNameMap.set(normalize(host), name);
         });
 
-        const latency = await memoize(`lat:${normalize(address)}`, () => getLatency(env, address));
-        const dialGeo = await memoize(`geo:${normalize(address)}`, async () =>
-            (await resolveGeo(env, address)) ?? null) ?? undefined;
+        const tokens = templateTokens(nameTemplate);
+        const wantsLatency = tokens.has('LATENCY') || tokens.has('LATENCY_AGE');
+        // Do not reuse measurements after the opt-in auto-test is disabled.
+        // Otherwise a stale KV value can keep rendering {LATENCY} for up to 24h.
+        const latencyRecord = wantsLatency && latencyAutoTest === true
+            ? await memoize(`lat:${normalize(address)}`, () => getLatencyRecord(env, address))
+            : null;
 
-        // The lookup above geolocates the DIAL address (e.g. a Cloudflare edge
-        // IP), which is NOT the IP traffic actually exits from — ip-api pins most
-        // CF edge IPs to CF's registered country, so labels were misleading.
-        // Resolve the geo of the real egress instead, falling back to the dial
-        // address only if the egress cannot be determined.
-        const egress = await memoize(egressMemoKey(), () => resolveEgressGeo(env));
+        const needsGeo = [
+            'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE',
+            'GEO_AGE', 'F', 'C', 'EGRESS_IP'
+        ].some(token => tokens.has(token));
+        const geoMode = nameGeoMode === 'local' || nameGeoMode === 'disabled' ? nameGeoMode : 'auto';
+        const canLookupGeo = geoMode !== 'disabled';
+
+        // Geo is resolved for the actual egress only when the template needs it.
+        // A template containing just {IP}, {PORT}, or {INDEX} must not add
+        // third-party requests or make subscription generation wait on them.
+        const egress = needsGeo && canLookupGeo
+            ? await memoize(egressMemoKey(geoMode), () => resolveEgressGeo(env, geoMode === 'local'))
+            : null;
+        let dialGeo: GeoInfo | undefined;
+
+        // The dial address (for example a Cloudflare edge IP) is only a
+        // fallback when the egress cannot be determined. Looking it up first
+        // would needlessly hit ip-api once for every address in the subscription.
+        if (needsGeo && canLookupGeo && !egress) {
+            dialGeo = await memoize(`geo:${geoMode}:${normalize(address)}`, async () =>
+                (await resolveGeo(env, address, { cacheOnly: geoMode === 'local' })) ?? null) ?? undefined;
+        }
+
         const egressGeo = egress ?? dialGeo;
         const egressIp = egress?.ip ?? (dialGeo?.ip ?? normalize(address));
+        const { sni, host } = selectSniHost(address, domain);
+        const family = isIPv6(address) ? 'IPv6' : isIPv4(address) ? 'IPv4' : isDomain(address) ? 'Domain' : '';
+        const isTLS = httpsPorts.includes(port) || address === upstreamServer;
 
         const nameCtx: NameContext = {
             brand: _project_,
@@ -165,19 +205,27 @@ export async function generateRemark(
             address,
             port,
             geo: egressGeo,
-            latency: latency != null ? String(latency) : undefined,
+            latency: latencyRecord?.ms != null ? String(latencyRecord.ms) : undefined,
+            latencyAge: formatCacheAge(latencyRecord?.measuredAt),
             customName: ipNameMap.get(normalize(address)) || undefined,
-            marker: configType,
+            marker: configType.trim(),
             egressIp,
             proto: protoSign,
-            chain: isChain
+            chain: isChain,
+            security: isTLS ? 'TLS' : 'None',
+            transport: 'WS',
+            sni,
+            host,
+            family,
+            domain,
+            core: core || 'unknown',
+            kind: isChain ? 'Chain' : isFragment ? 'Fragment' : 'Normal'
         };
 
-        const rendered = renderName(nameTemplate, nameCtx);
-
         // If rendering yields nothing meaningful, keep today's output.
+        const rendered = renderName(nameTemplate, nameCtx);
         if (rendered.trim() && rendered.trim() !== '--') {
-            return uniquifyName(rendered, nameTemplate, nameCtx);
+            return getConfiguredName(fallback, nameCtx);
         }
     }
 
@@ -186,9 +234,9 @@ export async function generateRemark(
 
 // The egress depends on the proxy-IP settings, so it is memoized per resolved
 // mode+target rather than under a bare 'egress' key.
-function egressMemoKey(): string {
+function egressMemoKey(geoMode = 'auto'): string {
     const { proxyIpMode, proxyIPs } = getSettings();
-    return `egress:${proxyIpMode}:${proxyIpMode === 'proxyip' ? (proxyIPs[0] ?? '') : ''}`;
+    return `egress:${geoMode}:${proxyIpMode}:${proxyIpMode === 'proxyip' ? (proxyIPs[0] ?? '') : ''}`;
 }
 
 // Resolve the geo of the IP traffic ACTUALLY exits from for this deployment,
@@ -200,7 +248,7 @@ function egressMemoKey(): string {
 const EGRESS_IP_KEY = 'egressIp';
 const EGRESS_IP_TTL = 60 * 60 * 6; // 6h — a PoP's egress IP is stable enough
 
-async function resolveEgressGeo(env: Env): Promise<GeoInfo | null> {
+async function resolveEgressGeo(env: Env, cacheOnly = false): Promise<GeoInfo | null> {
     const { proxyIpMode, proxyIPs } = getSettings();
 
     if (proxyIpMode === 'proxyip' && proxyIPs.length) {
@@ -209,18 +257,20 @@ async function resolveEgressGeo(env: Env): Promise<GeoInfo | null> {
 
         let ip = host;
         if (isDomain(host)) {
+            if (cacheOnly) return null;
             const { ipv4 } = await resolveDNS(host, true).catch(() => ({ ipv4: [], ipv6: [] }));
             if (ipv4.length) ip = ipv4[0];
         }
 
-        if (isIPv4(ip) || isIPv6(ip)) return resolveGeo(env, ip);
+        if (isIPv4(ip) || isIPv6(ip)) return resolveGeo(env, ip, { cacheOnly });
         return null;
     }
 
     // Cache the probed egress IP in KV: a cold isolate would otherwise call a
     // third party on the critical path of every subscription fetch.
     const cached = await env.kv.get(EGRESS_IP_KEY).catch(() => null);
-    if (cached && isIPv4(cached)) return resolveGeo(env, cached);
+    if (cached && isIPv4(cached)) return resolveGeo(env, cached, { cacheOnly });
+    if (cacheOnly) return null;
 
     try {
         const res = await fetch(`https://ipv4.icanhazip.com/?t=${Date.now()}`, {
