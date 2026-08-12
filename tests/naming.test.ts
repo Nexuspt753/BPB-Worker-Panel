@@ -216,10 +216,17 @@ describe('config-name templates', () => {
         expect(brand.rows[0]?.rawName).toBe('BPB');
     });
 
-    test('keeps the browser autocomplete contract sourced from the backend tuple', () => {
+    test('keeps the browser autocomplete and Apply contracts intact', () => {
         expect(NAME_TEMPLATE_TOKEN_CATALOG.map(item => item.token)).toEqual([...NAME_TEMPLATE_TOKENS]);
         const panelScript = readFileSync(new URL('../src/assets/panel/script.js', import.meta.url), 'utf8');
+        const panelMarkup = readFileSync(new URL('../src/assets/panel/index.html', import.meta.url), 'utf8');
         expect(panelScript).toContain("JSON.parse('__NAME_TEMPLATE_TOKENS__')");
+        // A leading `{` must be treated as a new token context; using
+        // lastIndexOf('{', -1) incorrectly reports that opener as nested.
+        expect(panelScript).toContain("before.slice(0, lastOpen).lastIndexOf('{')");
+        // Apply must reach updateSettings so server-side validation can explain
+        // invalid fields instead of native validation silently blocking submit.
+        expect(panelMarkup).toContain('<form id="configForm" class="configForm" novalidate onsubmit="updateSettings(event)">');
     });
 });
 

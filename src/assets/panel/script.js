@@ -58,7 +58,9 @@ function initTemplateAutocomplete() {
         if (lastClose > lastOpen) return null;
         // Do not offer a completion inside a nested or still-open token such
         // as `{{IP`; the backend will reject that structure as malformed.
-        const previousOpen = before.lastIndexOf('{', lastOpen - 1);
+        // Slice before the current opener so a leading `{` does not make
+        // lastIndexOf('{', -1) wrap back to index zero.
+        const previousOpen = before.slice(0, lastOpen).lastIndexOf('{');
         if (previousOpen > lastClose) return null;
         const fragment = before.slice(lastOpen + 1);
         // Tokens are [A-Za-z0-9_] (EGRESS_IP has an underscore), so the partial
@@ -887,13 +889,20 @@ function updateSettings(event, data) {
                     ['Session expired! Please login and try again.']
                 );
                 window.location.href = './login';
+                return;
             }
 
             if (!success) {
-                errors.forEach(error => {
-                    notify('error', error.field, error.message);
-                });
-                throw new Error(`status ${status} - ${message}`);
+                if (Array.isArray(errors) && errors.length) {
+                    const details = errors.flatMap(error => [
+                        error.field || 'Validation',
+                        ...(Array.isArray(error.message) ? error.message : [error.message || 'Validation failed.'])
+                    ]);
+                    notify('error', 'Apply settings', details);
+                } else {
+                    notify('error', 'Apply settings', [message || `Request failed (status ${status}).`]);
+                }
+                return;
             }
 
             notify(
@@ -904,7 +913,12 @@ function updateSettings(event, data) {
 
             renderPanel(form);
         })
-        .catch(error => console.error('Update settings error:', error))
+        .catch(error => {
+            console.error('Update settings error:', error);
+            if (error instanceof TypeError || error instanceof SyntaxError) {
+                notify('error', 'Apply settings', ['Could not reach the panel or read its response. Please try again.']);
+            }
+        })
         .finally(() => stopWaiting(icons));
 }
 
