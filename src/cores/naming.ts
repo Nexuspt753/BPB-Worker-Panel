@@ -728,34 +728,11 @@ export function nameSnapshotKey(template: string, ctx: NameContext): string {
     return `nameSnapshot:v${NAME_TEMPLATE_VERSION}:${fnv1a64(`${canonicalTemplate}|${stableNameKey(ctx)}`)}`;
 }
 
-function missingIdentityDimensions(tokens: Set<string>, ctx: NameContext): string[] {
-    const missing: string[] = [];
-    const hasAddress = tokens.has('IP') || tokens.has('D');
-    if (ctx.address && !hasAddress) missing.push('address');
-    if (ctx.domain && ctx.domain !== ctx.address && !tokens.has('DOMAIN')) missing.push('domain');
-    if (ctx.port != null && !tokens.has('PORT')) missing.push('port');
-    if (ctx.proto && !tokens.has('PROTO')) missing.push('protocol');
-    if (ctx.chain && !tokens.has('CHAIN')) missing.push('chain');
-    if (ctx.marker && !tokens.has('MARKER')) missing.push('marker');
-    if (ctx.kind && !tokens.has('KIND')) missing.push('kind');
-    if (ctx.core && !tokens.has('CORE')) missing.push('core');
-    if (ctx.transport && !tokens.has('TRANSPORT')) missing.push('transport');
-    if (ctx.security && !tokens.has('SECURITY')) missing.push('security');
-    if (ctx.customName && !tokens.has('IPNAME')) missing.push('custom-name');
-    if (ctx.group && !tokens.has('GROUP')) missing.push('group');
-    // Explicit identities include details that no public token necessarily
-    // exposes (for example imported credentials or the full Best Ping set).
-    // Always retain that identity in the generated name so collisions remain
-    // stable even when every visible context field is already in the template.
-    if (ctx.identity) missing.push('identity');
-    return missing;
-}
-
 /**
- * Config names MUST be unique. Any identity dimension omitted from a template
- * gets a human-readable hint and a stable hash. The hash is derived from the
- * config identity rather than list order, so reordering addresses does not
- * rename existing configs.
+ * Build a compact identity value for the exceptional case where a collision
+ * actually requires a disambiguator. A configured template is otherwise left
+ * untouched; omitted identity fields are not an error and must not leak into
+ * the user's name.
  */
 function shortIdentityName(ctx: NameContext, maxLength: number, collision = 0): string {
     const seed = collision > 0
@@ -821,36 +798,29 @@ export function registerFallbackName(fallback: string, ctx: NameContext, options
 
 export function uniquifyName(
     rendered: string,
-    template: string | CompiledNameTemplate,
+    _template: string | CompiledNameTemplate,
     ctx: NameContext,
     options: NameFormatOptions = {}
 ): string {
-    const tokens = templateTokens(template);
     const mode = options.mode ?? 'readable';
-    const missing = missingIdentityDimensions(tokens, ctx);
-    const suffix: string[] = [];
-
-    if (missing.includes('chain')) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
-    if (missing.includes('marker') && ctx.marker) suffix.push(ctx.marker.trim());
-    if (missing.includes('protocol') && ctx.proto) suffix.push(ctx.proto);
-    if (missing.includes('port') && ctx.port != null) suffix.push(String(ctx.port));
-    if (missing.length) suffix.push(stableNameSuffix(ctx));
-
     const maxLength = Number.isInteger(options.maxLength) && (options.maxLength ?? 0) > 0
         ? options.maxLength!
         : undefined;
+
+    // The rendered template is the user's naming rule. Do not append protocol,
+    // port, identity, or hash information merely because the template omits a
+    // token. Formatting and the explicitly configured maximum length still    // apply, but the first candidate must otherwise be exactly the template's    // output.
     const base = formatName(rendered, { mode });
-    const suffixText = formatName(suffix.join(' '), { mode });
-    let candidate = composeName(base, suffixText, mode, maxLength, ctx);
-    if (!candidate) candidate = sanitizeConfigName(maxLength ? truncateName(base, maxLength) : base, 'tag');
+    let candidate = sanitizeConfigName(maxLength ? truncateName(base, maxLength) : base, 'tag');
 
     const registry = ctx.registry;
     if (registry) {
         const identitySuffix = stableNameSuffix(ctx);
         let collision = 1;
-        // A maximum length can make a stable suffix longer than the entire
-        // name. Use a hashed short form in that case and cap the retry loop so
-        // a one-character limit can never hang generation forever.
+        // Only a real collision (including a reserved client identifier) gets
+        // a disambiguator. A maximum length can make a stable suffix longer
+        // than the entire name, so use a compact hash in that case and cap the
+        // retry loop to avoid pathological settings hanging generation.
         while (registry.names.has(candidate) && collision < 4096) {
             collision++;
             const suffixWithCollision = `${identitySuffix}-${collision}`;

@@ -207,7 +207,7 @@ function renderNamePreviewResult(result) {
     }
 
     const intro = document.createElement('div');
-    intro.textContent = 'Raw duplicate names are shown below; final names use the same stable identity suffix logic as subscriptions.';
+    intro.textContent = 'Raw duplicate names are shown below; only real name collisions receive a stable identity suffix, matching subscriptions.';
     const list = document.createElement('ul');
     result.collisions.forEach(({ name, labels }) => {
         const item = document.createElement('li');

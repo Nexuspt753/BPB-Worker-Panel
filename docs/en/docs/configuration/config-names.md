@@ -98,15 +98,11 @@ The empty template preserves the original output names. After changing a templat
 
 Client cores use names as identifiers: Clash uses proxy names, sing-box uses outbound tags, Xray uses remarks, and WireGuard uses filenames. The panel therefore keeps generated names unique.
 
-When a template omits an identity dimension such as the address, protocol, port, marker, or chain state, the missing information is added as a readable hint followed by a stable fingerprint, for example:
+A valid template is followed exactly: omitted identity dimensions are not automatically appended to the result. For example, `{COUNTRY}` produces `Germany`, not `Germany VLESS 443 ~a1b2c3d4`.
 
-```text
-🇩🇪Germany VLESS 443 ~a1b2c3d4
-```
+Client cores still require unique identifiers. If the rendered result collides with another generated name or a reserved selector/DNS/inbound/URL-test identifier, only the colliding result receives a deterministic identity suffix such as `~a1b2c3d4-2`. The fingerprint is derived from canonical config identity rather than list order; hosts, domains, ports, IPv6 brackets, and trailing root dots are normalized before hashing. Reordering addresses does not rename a non-colliding config.
 
-The fingerprint is derived from a canonical config identity rather than list order. Hosts, domains, ports, IPv6 brackets, and trailing root dots are normalized before hashing, so harmless spelling changes do not rename a config. Reordering addresses does not rename them. If two genuinely identical rendered names still occur, the later one receives a deterministic `-2`, `-3`, and so on suffix within that output.
-
-Maximum length is applied after reserving space for the uniqueness suffix, so truncation does not remove the part that distinguishes configs. Fixed selector, DNS, inbound, and URL-test identifiers are reserved so a custom name cannot shadow a client-core identifier.
+Maximum length is applied to the template result. When a real collision needs a suffix, the implementation preserves the configured maximum length while making the best possible deterministic disambiguation.
 
 ## Address groups
 

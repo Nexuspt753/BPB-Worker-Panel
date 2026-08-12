@@ -88,24 +88,26 @@ describe('config-name templates', () => {
         expect(formatName('Café 🚀', { mode: 'ascii' })).toBe('Cafe');
     });
 
-    test('uses stable identity suffixes rather than list order', () => {
+    test('honors the template exactly and only suffixes real collisions', () => {
         const first = { index: 1, address: '1.1.1.1', port: 443, proto: 'VLESS', kind: 'Normal' };
         const reordered = { ...first, index: 99 };
         expect(stableNameSuffix(first)).toBe(stableNameSuffix(reordered));
-        expect(uniquifyName('Germany', '{COUNTRY}', first)).toContain(stableNameSuffix(first));
+
+        // Omitting identity tokens is allowed; it must not cause automatic
+        // protocol, port, or fingerprint text to be appended.
+        expect(uniquifyName('Germany', '{COUNTRY}', first)).toBe('Germany');
 
         const registry = createNameRegistry();
         const one = uniquifyName('same', '{IP}', { ...first, registry });
         const two = uniquifyName('same', '{IP}', { ...first, index: 2, registry });
-        expect(one).not.toBe(two);
-        expect(two).toContain('-2');
+        expect(one).toBe('same');
+        expect(two).not.toBe(one);
+        expect(two).toContain(stableNameSuffix({ ...first, index: 2 }));
 
         const explicitA = { ...first, identity: 'credentials-a' };
         const explicitB = { ...first, identity: 'credentials-b' };
-        expect(uniquifyName('same', '{IP}{PORT}{PROTO}{KIND}', explicitA))
-            .toContain(stableNameSuffix(explicitA));
-        expect(uniquifyName('same', '{IP}{PORT}{PROTO}{KIND}', explicitB))
-            .toContain(stableNameSuffix(explicitB));
+        expect(uniquifyName('same', '{IP}{PORT}{PROTO}{KIND}', explicitA)).toBe('same');
+        expect(uniquifyName('same', '{IP}{PORT}{PROTO}{KIND}', explicitB)).toBe('same');
     });
 
     test('keeps fallback names deterministic when visible values are unavailable', () => {
