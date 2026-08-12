@@ -32,6 +32,14 @@
 
     [:octicons-arrow-right-24: Getting started](common.md)
 
+- :material-cog-outline:{ .lg .middle } __Config Names__
+
+    ---
+
+    Customize generated config names with templates, presets, formatting, and privacy controls.
+
+    [:octicons-arrow-right-24: Getting started](config-names.md)
+
 - :material-cog-outline:{ .lg .middle } __VLESS - Trojan__
 
     ---

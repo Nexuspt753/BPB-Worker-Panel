@@ -32,6 +32,14 @@
 
     [:octicons-arrow-right-24: شروع](common.md)
 
+- :material-cog-outline:{ .lg .middle } __اسم کانفیگ‌ها__
+
+    ---
+
+    قالب‌بندی اسم کانفیگ‌ها، presetها، کنترل طول نام و حریم خصوصی اطلاعات جغرافیایی.
+
+    [:octicons-arrow-right-24: شروع](config-names.md)
+
 - :material-cog-outline:{ .lg .middle } __پروتکل‌های VLESS و Trojan__
 
     ---

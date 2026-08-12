@@ -82,6 +82,7 @@ nav:
     - Admin: configuration/admin-settings.md
     - Telegram Bot: configuration/telegram-bot.md
     - Common: configuration/common.md
+    - Config Names: configuration/config-names.md
     - VLESS - Trojan: configuration/vless-trojan.md 
     - Fragment: configuration/fragment.md
     - External Raw Configs: configuration/external-configs.md

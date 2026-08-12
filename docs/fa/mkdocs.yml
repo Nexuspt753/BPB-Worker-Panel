@@ -81,7 +81,8 @@ nav:
     - configuration/index.md
     - تنظیمات Admin: configuration/admin-settings.md
     - بات تلگرام: configuration/telegram-bot.md
-    - تنظیمات مشترک یا Common: configuration/common.md 
+    - تنظیمات مشترک یا Common: configuration/common.md
+    - اسم کانفیگ‌ها: configuration/config-names.md
     - پروتکل‌های VLESS و Trojan: configuration/vless-trojan.md 
     - تنظیمات Fragment: configuration/fragment.md
     - اضافه کردن کانفیگ‌های شخصی: configuration/external-configs.md
