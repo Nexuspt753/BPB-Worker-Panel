@@ -12,7 +12,11 @@ import {
     registerFallbackName,
     stableNameSuffix,
     truncateName,
-    uniquifyName
+    uniquifyName,
+    nameSnapshotKey,
+    compileNameTemplate,
+    renderCompiledName,
+    sanitizeConfigName
 } from '../src/cores/naming';
 import { resolveGeo } from '../src/cores/geo';
 
@@ -26,6 +30,20 @@ describe('config-name templates', () => {
 
         expect(renderName('{{IP}COUNTRY}', { index: 1, address: '1.1.1.1' })).toBe('');
         expect(getNameTemplateDiagnostics('{IP}{COUNTRY}')).toHaveLength(0);
+        expect(getNameTemplateDiagnostics('[[literal only]]')[0]?.code).toBe('empty-optional');
+        expect(getNameTemplateDiagnostics('x\u202E{IP}')[0]?.code).toBe('unsafe-character');
+        expect(getNameTemplateDiagnostics('x\n{IP')[1]?.line).toBe(2);
+    });
+
+    test('supports per-token fallbacks without changing optional behavior', () => {
+        expect(renderName('{CITY|Unknown} - {COUNTRY}', {
+            index: 1,
+            address: '1.1.1.1',
+            geo: { ip: '1.1.1.1', countryCode: 'DE', country: 'Germany' }
+        })).toBe('Unknown - Germany');
+        expect(renderName('[[ - {CITY|Unknown}]]', { index: 1, address: '1.1.1.1' })).toBe(' - Unknown');
+        expect(isValidNameTemplate('{CITY|Unknown}')).toBe(true);
+        expect(isValidNameTemplate('{CITY|}')).toBe(false);
     });
 
     test('omits optional sections only when their tokens have no value', () => {
@@ -42,7 +60,23 @@ describe('config-name templates', () => {
 
     test('migrates old token casing while preserving user text', () => {
         expect(migrateNameTemplate('edge-{flag}-{country}', 1)).toBe('edge-{FLAG}-{COUNTRY}');
-        expect(migrateNameTemplate('edge-{flag}', 3)).toBe('edge-{flag}');
+        expect(migrateNameTemplate('edge-{flag}', 5)).toBe('edge-{flag}');
+    });
+
+    test('keeps output identifiers safe and distinguishes dial from egress data', () => {
+        expect(sanitizeConfigName('a/b:c?.conf', 'filename')).toBe('a_b_c_.conf');
+        expect(sanitizeConfigName('line\nname\u202E', 'tag')).toBe('line name');
+        expect(renderName('{IP}[[ egress={EGRESS_IP}]]', {
+            index: 1,
+            address: '1.1.1.1',
+            geoSource: 'dial'
+        })).toBe('1.1.1.1');
+        expect(renderName('{GEO_SOURCE} {IP}[[ egress={EGRESS_IP}]]', {
+            index: 1,
+            address: '1.1.1.1',
+            geoSource: 'egress',
+            egressIp: '203.0.113.10'
+        })).toBe('egress 1.1.1.1 egress=203.0.113.10');
     });
 
     test('truncates by grapheme cluster and keeps format modes predictable', () => {
@@ -117,16 +151,28 @@ describe('config-name templates', () => {
             'Cloudflare Fast:',
             '1.1.1.1:443',
             '[2606:4700::1111]:443',
-            'Backup: 1.0.0.1, example.com'
+            'Backup: 1.0.0.1, example.com',
+            'IPv6: 2606:4700::1111'
         ]);
         expect(groups.get('1.1.1.1')).toBe('Cloudflare Fast');
-        expect(groups.get(normalizeAddress('[2606:4700::1111]'))).toBe('Cloudflare Fast');
+        expect(groups.get(normalizeAddress('[2606:4700::1111]'))).toBe('IPv6');
         expect(groups.get('example.com')).toBe('Backup');
+        expect(groups.get('2606:4700::1111')).toBe('IPv6');
+        expect(groups.get(normalizeAddress('EXAMPLE.COM.'))).toBe('Backup');
         expect(renderName('{GROUP} - {IP}', {
             index: 1,
             address: '1.1.1.1',
             group: groups.get('1.1.1.1')
         })).toBe('Cloudflare Fast - 1.1.1.1');
+    });
+
+    test('compiled templates and snapshot keys are reusable and strong', () => {
+        const compiled = compileNameTemplate('{FLAG} {IP|unknown}');
+        expect(compiled).not.toBeNull();
+        expect(renderCompiledName(compiled!, { index: 1, address: '1.1.1.1', geo: { ip: '1.1.1.1', countryCode: 'DE' } })).toBe('🇩🇪 1.1.1.1');
+        expect(nameSnapshotKey('{IP}', { index: 1, address: '1.1.1.1' })).toMatch(/^nameSnapshot:v5:[0-9a-f]{16}$/u);
+        expect(nameSnapshotKey('{IP}', { index: 1, address: '1.1.1.1' }))
+            .toBe(nameSnapshotKey('{IP}', { index: 99, address: '1.1.1.1' }));
     });
 
     test('backend preview exposes raw collisions and final unique names', () => {
@@ -135,6 +181,8 @@ describe('config-name templates', () => {
         expect(result.rows.length).toBeGreaterThan(1);
         expect(result.collisions.length).toBeGreaterThan(0);
         expect(result.rows.some(row => row.rawName !== row.finalName)).toBe(true);
+        expect(result.tokenAvailability.IP?.available).toBe(result.tokenAvailability.IP?.total);
+        expect(result.tokenCatalog.some(token => token.token === 'GEO_SOURCE')).toBe(true);
 
         const reserved = buildNamePreview('✅ Selector');
         expect(reserved.rows.every(row => row.rawName !== row.finalName)).toBe(true);

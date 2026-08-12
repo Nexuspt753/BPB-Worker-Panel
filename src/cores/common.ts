@@ -1,6 +1,6 @@
 import { base64DecodeUtf8, base64EncodeUtf8 } from '@common';
 import { getSettings } from '@settings';
-import { createNameRegistry } from './naming';
+import { createNameRegistry, RESERVED_NAME_IDENTIFIERS } from './naming';
 import {
     generateRemark,
     generateWsPath,
@@ -71,7 +71,7 @@ export async function getURLConfigs(env: Env) {
 
     let VLConfs = '', TRConfs = '', chainConfig = '';
     let proxyIndex = 1;
-    const nameRegistry = createNameRegistry();
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
     const domains = [mainDomain].concatIf(!!customDomain, customDomain);
     const protocols = getProtocols();
 

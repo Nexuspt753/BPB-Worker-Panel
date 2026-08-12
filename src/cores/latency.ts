@@ -8,38 +8,44 @@ export { splitIpAndName, cleanIpHost } from './naming';
 
 const LATENCY_PREFIX = 'latency:';
 export const LATENCY_TTL = 60 * 60 * 24; // 24h
-export interface LatencyEntry { ms: number; measuredAt: number; }
+export interface LatencyEntry { ms: number; measuredAt: number; port?: number; }
 
-// Keyed on the bare address so the latency store and the geo cache agree on
-// IPv6 (`latency:2606:...`, never `latency:[2606:...]`).
-const latencyKey = (address: string) => `${LATENCY_PREFIX}${normalizeAddress(address)}`;
+// Keep the old address-only key for the default HTTPS probe so existing cached
+// measurements remain useful. Non-default ports get an endpoint-specific key;
+// otherwise a healthy port 443 sample could be incorrectly shown for port 80.
+const latencyKey = (address: string, port = 443) => {
+    const host = normalizeAddress(address);
+    return port === 443 ? `${LATENCY_PREFIX}${host}` : `${LATENCY_PREFIX}${host}:${port}`;
+};
 
-export async function getLatencyRecord(env: Env, address: string): Promise<LatencyEntry | null> {
+export async function getLatencyRecord(env: Env, address: string, port = 443): Promise<LatencyEntry | null> {
     try {
-        const rec = await env.kv.get(latencyKey(address), 'json') as LatencyEntry | null;
+        const rec = await env.kv.get(latencyKey(address, port), 'json') as LatencyEntry | null;
         if (!rec
             || typeof rec.ms !== 'number'
             || !Number.isFinite(rec.ms)
             || rec.ms < 0
             || typeof rec.measuredAt !== 'number'
             || !Number.isFinite(rec.measuredAt)
-            || rec.measuredAt <= 0) return null;
-        return rec;
+            || rec.measuredAt <= 0
+            || (rec.port != null && (!Number.isInteger(rec.port) || rec.port < 1 || rec.port > 65535))
+            || (rec.port != null && rec.port !== port)) return null;
+        return { ...rec, port: rec.port ?? 443 };
     } catch (e) {
         console.error(e);
         return null;
     }
 }
 
-export async function getLatency(env: Env, address: string): Promise<number | null> {
-    const rec = await getLatencyRecord(env, address);
+export async function getLatency(env: Env, address: string, port = 443): Promise<number | null> {
+    const rec = await getLatencyRecord(env, address, port);
     return rec?.ms ?? null;
 }
 
-export async function setLatency(env: Env, address: string, ms: number): Promise<void> {
+export async function setLatency(env: Env, address: string, ms: number, port = 443): Promise<void> {
     try {
         await env.kv
-            .put(latencyKey(address), JSON.stringify({ ms, measuredAt: Date.now() } satisfies LatencyEntry), {
+            .put(latencyKey(address, port), JSON.stringify({ ms, measuredAt: Date.now(), port } satisfies LatencyEntry), {
                 expirationTtl: LATENCY_TTL
             })
             .catch((e) => console.error(e));
@@ -69,7 +75,7 @@ export interface Probe {
  * matching the original proxy-IP checker: send plaintext HTTP to port 443 with
  * Cloudflare's speed-test host header and inspect the edge response.
  */
-export async function probeAddress(address: string): Promise<Probe> {
+export async function probeAddress(address: string, port = 443): Promise<Probe> {
     const host = normalizeAddress(address);
     if (!host) return { reachable: false, healthy: false, elapsedMs: 0 };
 
@@ -113,7 +119,7 @@ export async function probeAddress(address: string): Promise<Probe> {
         });
         const responsePromise = (async () => {
             try {
-                socket = connect({ hostname: host, port: 443 });
+                socket = connect({ hostname: host, port });
                 if (timedOut) throw new Error('latency probe timeout');
 
                 const writer = socket.writable.getWriter();
@@ -167,8 +173,8 @@ export async function probeAddress(address: string): Promise<Probe> {
  * Health check used by the Proxy IP page: a proxy IP is only useful if it
  * actually relays to Cloudflare, so `ok` means healthy, not merely reachable.
  */
-export async function checkLatency(address: string): Promise<{ ok: boolean; elapsedMs: number }> {
-    const { healthy, elapsedMs } = await probeAddress(address);
+export async function checkLatency(address: string, port = 443): Promise<{ ok: boolean; elapsedMs: number }> {
+    const { healthy, elapsedMs } = await probeAddress(address, port);
     return { ok: healthy, elapsedMs };
 }
 
@@ -179,16 +185,25 @@ export async function checkLatency(address: string): Promise<{ ok: boolean; elap
  * `ctx.waitUntil`, i.e. after the response, when this isolate's module-level
  * settings may already have been replaced by a concurrent request.
  */
-export async function sweepLatency(env: Env, targets: string[]): Promise<void> {
-    const unique = [...new Set(targets.filter(Boolean).map(normalizeAddress).filter(Boolean))];
+export interface LatencyTarget {
+    address: string;
+    port?: number;
+}
+
+export async function sweepLatency(env: Env, targets: Array<string | LatencyTarget>): Promise<void> {
+    const unique = [...new Map(targets
+        .map(target => typeof target === 'string' ? { address: target, port: 443 } : target)
+        .map(target => ({ ...target, address: normalizeAddress(target.address), port: target.port || 443 }))
+        .filter(target => target.address && Number.isInteger(target.port) && target.port >= 1 && target.port <= 65535)
+        .map(target => [`${target.address}|${target.port}`, target] as const)).values()];
     let cursor = 0;
     const worker = async () => {
         while (cursor < unique.length) {
-            const address = unique[cursor++];
-            const { healthy, elapsedMs } = await probeAddress(address);
+            const target = unique[cursor++];
+            const { healthy, elapsedMs } = await probeAddress(target.address, target.port);
             // A reachable non-Cloudflare host is not a useful proxy latency
             // sample; keep the last good measurement instead of poisoning it.
-            if (healthy) await setLatency(env, address, elapsedMs);
+            if (healthy) await setLatency(env, target.address, elapsedMs, target.port);
         }
     };
 

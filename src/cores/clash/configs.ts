@@ -5,7 +5,7 @@ import type { WireguardOutbound, Config, Outbound } from '#types/clash';
 import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
 import { sniffer, tun } from './inbounds';
 import { getSettings, getWarpAccounts } from '@settings';
-import { createNameRegistry } from '../naming';
+import { createNameRegistry, RESERVED_NAME_IDENTIFIERS } from '../naming';
 
 type TagGroup = Record<string, string[]>;
 
@@ -98,7 +98,7 @@ export async function getClNormalConfig(env: Env): Promise<Response> {
     const protocols = getProtocols();
 
     const outbounds: Outbound[] = [];
-    const nameRegistry = createNameRegistry();
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
     const tagGroup: TagGroup = {
         '💦 Best Ping 🚀': [],
         '💦 🔗 Best Ping 🚀': [],
@@ -181,7 +181,7 @@ export async function getClWarpConfig(isPro: boolean, env?: Env): Promise<Respon
     const warpAccounts = getWarpAccounts();
 
     const outbounds: WireguardOutbound[] = [];
-    const nameRegistry = createNameRegistry();
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
     const proSign = isPro ? 'Pro ' : '';
     const tagGroup: TagGroup = {
         [`💦 Warp ${proSign}- Best Ping 🚀`]: [],

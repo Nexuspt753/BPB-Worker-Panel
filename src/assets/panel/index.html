@@ -619,20 +619,24 @@
                             <label for="nameAddressGroups">Address groups</label>
                             <div><textarea id="nameAddressGroups" name="nameAddressGroups" rows="2"
                                 placeholder="Cloudflare Fast:\n1.1.1.1\n1.0.0.1"></textarea></div>
-                            <small class="field-help">Use a group header followed by addresses, or `Group: address1, address2`, then use {GROUP}.</small>
+                            <small class="field-help">Use a group header followed by addresses, or `Group: address1, address2`, then use {GROUP}. IPv6 may be written as [address]:port.</small>
                         </div>
                         <div class="name-preview-card" aria-live="polite">
                             <strong>Live examples</strong>
                             <div id="nameTemplatePreview">Set a template to preview generated names.</div>
-                            <small>Use [[optional text]] to omit a section when its tokens have no value. GEO_AGE and LATENCY_AGE show cache age.</small>
+                            <small>Use [[optional text]] to omit a section when its tokens have no value. Use {CITY|Unknown} for a per-token fallback. GEO_SOURCE explains whether geo came from egress, dial, or cache; GEO_AGE and LATENCY_AGE show age.</small>
                         </div>
                         <div class="name-preview-card" aria-live="polite">
                             <strong>Collision preview</strong>
                             <div id="nameTemplateCollisions">No collisions analyzed.</div>
                             <div id="nameTemplateDiagnostics" class="name-template-diagnostics" role="status"></div>
                         </div>
+                        <details class="name-template-catalog">
+                            <summary>Token availability</summary>
+                            <div id="nameTemplateTokenHelp">Set a template to load the token catalog.</div>
+                        </details>
                         <div class="form-control">
-                            <label for="latencyAutoTest">Auto-test config IPs latency</label>
+                            <label for="latencyAutoTest">Auto-test endpoint latency</label>
                             <div><input type="checkbox" id="latencyAutoTest" name="latencyAutoTest"></div>
                         </div>
                         <div class="form-control">

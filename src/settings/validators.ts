@@ -2,7 +2,7 @@ import { PanelSettings } from '#types/settings';
 import { isBase64, isDomain, isHex, isIPv4, isIPv4CIDR, isIPv6, isIPv6CIDR, isValidUrl } from '@utils';
 import { isValidUUID } from '@common';
 import { getGlobals } from '@settings';
-import { getNameTemplateDiagnostics, isValidNameTemplate, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS, parseAddressGroups, splitIpAndName, templateTokens } from '@cores/naming';
+import { getNameTemplateDiagnostics, isValidNameTemplate, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS, parseAddressGroups, splitIpAndName, templateTokens } from '@cores/naming';
 
 export interface ValidationError {
     field: string;
@@ -207,7 +207,7 @@ function validateCleanIPs(form: PanelSettings, errors: ValidationError[]) {
     }
 }
 
-const NAME_TEMPLATE_MAX = 200;
+const NAME_TEMPLATE_MAX = MAX_NAME_TEMPLATE_LENGTH;
 const KNOWN_TOKENS = new Set<string>(NAME_TEMPLATE_TOKENS);
 
 function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
@@ -235,7 +235,10 @@ function validateNameTemplate(form: PanelSettings, errors: ValidationError[]) {
         errors.push({
             field: 'Config Name Template',
             message: diagnostics.length
-                ? diagnostics.map(diagnostic => `${diagnostic.message} (characters ${diagnostic.start + 1}-${Math.max(diagnostic.start + 1, diagnostic.end)})`)
+                ? diagnostics.map(diagnostic => {
+                    const location = diagnostic.line ? `line ${diagnostic.line}, column ${diagnostic.column}` : `characters ${diagnostic.start + 1}-${Math.max(diagnostic.start + 1, diagnostic.end)}`;
+                    return `${diagnostic.message} (${location})`;
+                })
                 : ['Use complete tokens like {IP}; nested, empty, or unmatched braces are not allowed.']
         });
         return;
@@ -283,28 +286,57 @@ function validateNameOptions(form: PanelSettings, errors: ValidationError[]) {
     }
 }
 
+function isValidNameGroupAddress(value: string): boolean {
+    const bareIPv6 = value.match(/^([0-9a-f:]+)(\/(?:12[0-8]|1[01]?[0-9]|[0-9]?[0-9]))?$/iu);
+    if (bareIPv6) return isIPv6(`[${bareIPv6[1]}]${bareIPv6[2] ?? ''}`);
+    return isValidHost(value) || isValidHost(value, true);
+}
+
+function hasUnsafeNameText(value: string): boolean {
+    return [...value].some(char => /[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(char));
+}
+
 function validateNameAddressGroups(form: PanelSettings, errors: ValidationError[]) {
     const entries = Array.isArray(form.nameAddressGroups) ? form.nameAddressGroups : [];
-    const groups = parseAddressGroups(entries);
     const invalids: string[] = [];
+    const unsafeLabels: string[] = [];
+    let lineCount = 0;
+
+    if (entries.length > 200) {
+        errors.push({
+            field: 'Config Name Address Groups',
+            message: ['Use at most 200 group lines.']
+        });
+    }
 
     entries.forEach(entry => {
         String(entry ?? '').split(/\r?\n/u).map(line => line.trim()).filter(Boolean).forEach(line => {
-            if (/^.+?:\s*$/u.test(line)) return;
-            const isEndpointLine = /^\[[^\]]+\]:\d+$/u.test(line) || /^[^:]+:\d+$/u.test(line);
+            lineCount++;
+            if (line.length > 200) invalids.push(`${line.slice(0, 80)}…`);
+            const header = line.match(/^(.+?):\s*$/u);
+            if (header) {
+                if (hasUnsafeNameText(header[1])) unsafeLabels.push(header[1]);
+                return;
+            }
+            const isBareIPv6 = /^[0-9a-f:]+(?:\/\d+)?$/iu.test(line);
+            const isEndpointLine = isBareIPv6 || /^\[[^\]]+\]:\d+$/u.test(line) || /^[^:]+:\d+$/u.test(line);
             const separator = isEndpointLine ? null : line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
+            if (separator && hasUnsafeNameText(separator[1])) unsafeLabels.push(separator[1].trim());
             const addresses = separator ? separator[2] : line;
             addresses.split(/\s*,\s*/u).map(value => value.trim()).filter(Boolean).forEach(address => {
-                if (!isValidHost(address) && !isValidHost(address, true)) invalids.push(address);
+                if (!isValidNameGroupAddress(address)) invalids.push(address);
             });
         });
     });
 
-    if (invalids.length || (entries.length > 0 && groups.size === 0)) {
+    const groups = parseAddressGroups(entries);
+    if (lineCount > 200) invalids.push('too many lines');
+    if (invalids.length || unsafeLabels.length || (entries.length > 0 && groups.size === 0)) {
         errors.push({
             field: 'Config Name Address Groups',
             message: [
                 'Use a group header such as "Fast:", followed by IPs/domains, or "Fast: 1.1.1.1, 1.0.0.1".',
+                ...(unsafeLabels.length ? ['Group labels cannot contain invisible or directional Unicode characters.'] : []),
                 'Invalid values are:\n',
                 ...invalids.map(value => `+ ${value}`)
             ]

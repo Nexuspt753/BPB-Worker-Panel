@@ -10,7 +10,7 @@ import {
     buildFreedomOutbound
 } from './outbounds';
 
-import { createNameRegistry, type NameRegistry } from '../naming';
+import { createNameRegistry, RESERVED_NAME_IDENTIFIERS, normalizeAddress, type NameRegistry } from '../naming';
 
 import {
     getConfigAddresses,
@@ -151,7 +151,9 @@ async function addBestPingConfigs(
     env: Env,
     domain?: string
 ) {
-    totalAddresses = [...new Set(totalAddresses)];
+    totalAddresses = [...new Map(totalAddresses
+        .map(address => [normalizeAddress(address), address] as const)
+        .filter(([key]) => Boolean(key))).values()];
     const isChain = !!chainOutbounds.length;
     const chainSign = isChain ? '🔗 ' : '';
     const fragmentSign = isFragment ? 'F ' : '';
@@ -173,8 +175,8 @@ async function addBestPingConfigs(
             isFragment ? 'fragment' : 'normal',
             isCustomDomain ? 'custom-domain' : 'main-domain',
             isChain ? 'chain' : 'direct',
-            domain ?? '',
-            ...totalAddresses.slice().sort()
+            normalizeAddress(domain ?? ''),
+            ...totalAddresses.map(normalizeAddress).sort()
         ].join('|'),
         registry
     });
@@ -320,7 +322,7 @@ async function addWorkerlessConfigs(configs: Config[], registry: NameRegistry, e
 }
 
 export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise<Response> {
-    const nameRegistry = createNameRegistry();
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
     const {
         chainProxy,
         ports,
@@ -414,8 +416,15 @@ export async function getXrWarpConfigs(
     const proxies: Outbound[] = [];
     const chains: Outbound[] = [];
     const outboundDomains: string[] = [];
-    const nameRegistry = createNameRegistry();
-    const stableWarpIdentity = [...warpEndpoints].sort().join('|');
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
+    const stableWarpIdentity = warpEndpoints
+        .map(endpoint => {
+            const { host, port } = parseHostPort(endpoint, true);
+            return `${normalizeAddress(host)}|${port || 443}`;
+        })
+        .sort()
+        .join('|');
+    const warpCore = isKnocker ? 'xray-knocker' : 'xray';
 
     for (const [index, endpoint] of warpEndpoints.entries()) {
         const { host, port } = parseHostPort(endpoint);
@@ -431,7 +440,7 @@ export async function getXrWarpConfigs(
             marker: 'Warp',
             proto: 'Warp',
             kind: isPro ? 'Warp Pro' : 'Warp',
-            core: 'xray',
+            core: warpCore,
             domain: host,
             security: 'None',
             transport: 'WireGuard',
@@ -446,7 +455,7 @@ export async function getXrWarpConfigs(
             proto: 'Warp',
             chain: true,
             kind: isPro ? 'WoW Pro' : 'WoW',
-            core: 'xray',
+            core: warpCore,
             domain: host,
             security: 'None',
             transport: 'WireGuard',
@@ -497,7 +506,7 @@ export async function getXrWarpConfigs(
         marker: 'Warp',
         proto: 'Warp',
         kind: 'Warp Best Ping',
-        core: 'xray',
+        core: warpCore,
         identity: `warp-best:${isPro ? 'pro' : 'standard'}:${isKnocker ? 'knocker' : 'normal'}:${stableWarpIdentity}`,
         registry: nameRegistry
     };
@@ -508,7 +517,7 @@ export async function getXrWarpConfigs(
         proto: 'Warp',
         chain: true,
         kind: 'WoW Best Ping',
-        core: 'xray',
+        core: warpCore,
         identity: `wow-best:${isPro ? 'pro' : 'standard'}:${isKnocker ? 'knocker' : 'normal'}:${stableWarpIdentity}`,
         registry: nameRegistry
     };

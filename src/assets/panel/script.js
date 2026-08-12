@@ -1,7 +1,7 @@
 const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
 const nameTemplateTokens = [
-    'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE',
+    'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE', 'GEO_SOURCE',
     'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN',
     'EGRESS_IP', 'B', 'F', 'D', 'C', 'SECURITY', 'TRANSPORT', 'SNI', 'HOST', 'FAMILY',
     'DOMAIN', 'CORE', 'KIND'
@@ -131,245 +131,32 @@ function initTemplateAutocomplete() {
     });
 }
 
-function previewTokenValue(token, context) {
-    const values = {
-        FLAG: context.flag,
-        COUNTRY: context.country,
-        COUNTRY_CODE: context.countryCode,
-        CITY: context.city,
-        REGION: context.region,
-        ISP: context.isp,
-        ASN: context.asn,
-        TYPE: context.type,
-        GEO_AGE: context.geoAge,
-        LATENCY: context.latency,
-        LATENCY_AGE: context.latencyAge,
-        IP: context.address,
-        IPNAME: context.customName,
-        GROUP: context.group,
-        INDEX: String(context.index),
-        PORT: String(context.port),
-        MARKER: context.marker,
-        PROTO: context.proto,
-        CHAIN: context.chain ? '🔗' : '',
-        EGRESS_IP: context.egressIp,
-        B: 'BPB',
-        F: context.flag,
-        D: context.address,
-        C: context.country,
-        SECURITY: context.security,
-        TRANSPORT: context.transport,
-        SNI: context.sni,
-        HOST: context.host,
-        FAMILY: context.family,
-        DOMAIN: context.domain,
-        CORE: context.core,
-        KIND: context.kind
-    };
-    return Object.prototype.hasOwnProperty.call(values, token) ? values[token] : undefined;
-}
-
-function previewTemplateValueIsPresent(token, context) {
-    const value = previewTokenValue(token, context);
-    return value !== undefined && value !== null && String(value) !== '';
-}
-
-function renderPreviewTemplate(template, context) {
-    if (typeof template !== 'string' || template.includes('[[[') || template.includes(']]]') || /\[\[\s*\]\]/.test(template)) return null;
-    if (template.includes('[[') && !template.includes(']]')) return null;
-    if (template.includes(']]') && !template.includes('[[')) return null;
-
-    let source = template.replace(/\[\[([^\[\]]*)\]\]/g, (_match, body) => {
-        const tokens = [...body.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(match => match[1].toUpperCase());
-        return tokens.some(token => previewTemplateValueIsPresent(token, context)) ? body : '';
-    });
-
-    source = source.replace(/\{([A-Za-z0-9_]+)\}/g, (_match, token) => {
-        const value = previewTokenValue(token.toUpperCase(), context);
-        if (value === undefined || value === null || value === '') {
-            return ['MARKER', 'CHAIN', 'GROUP'].includes(token.toUpperCase()) ? '' : '--';
-        }
-        return String(value);
-    });
-
-    return /[{}[\]]/.test(source) ? null : source;
-}
-
-function previewGraphemes(value) {
-    if (Intl.Segmenter) {
-        return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(item => item.segment);
-    }
-
-    const result = [];
-    for (const char of Array.from(value)) {
-        const previous = result[result.length - 1];
-        const isJoiner = char === '\u200d';
-        const isExtend = /[\u0300-\u036f\uFE00-\uFE0F\u{1F3FB}-\u{1F3FF}]/u.test(char);
-        if (previous && (previous.endsWith('\u200d') || isJoiner || isExtend)) {
-            result[result.length - 1] += char;
-        } else if (previous && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(previous) && /^[\u{1F1E6}-\u{1F1FF}]$/u.test(char)) {
-            result[result.length - 1] += char;
-        } else {
-            result.push(char);
-        }
-    }
-    return result;
-}
-
-function truncatePreviewName(value, maxLength) {
-    if (!Number.isInteger(maxLength) || maxLength < 1) return value;
-    return previewGraphemes(value).slice(0, maxLength).join('').trimEnd();
-}
-
-function formatPreviewName(value, mode, maxLength) {
-    let result = String(value || '')
-        .replace(/[\u0000-\u001f\u007f]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-    if (mode === 'compact') {
-        result = result.replace(/\s*([|·])\s*/g, '$1').replace(/([|·])(?:\1)+/g, '$1').replace(/\s+-\s+/g, '-');
-    } else if (mode === 'ascii') {
-        result = result.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '').trim();
-    }
-    const limit = Number(maxLength);
-    return truncatePreviewName(result, Number.isInteger(limit) && limit > 0 ? limit : undefined);
-}
-
-function previewNormalizeAddress(address) {
-    const value = String(address || '').trim();
-    const bare = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
-    return bare.toLowerCase();
-}
-
-function previewStableNameKey(context) {
-    return context.identity || [
-        context.kind,
-        context.core,
-        context.proto,
-        previewNormalizeAddress(context.address),
-        context.port,
-        context.domain,
-        context.marker,
-        context.chain ? 'chain' : 'direct',
-        context.transport,
-        context.security,
-        context.customName,
-        context.group
-    ].map(value => String(value ?? '')).join('|');
-}
-
-function previewHash(source) {
-    let hash = 0x811c9dc5;
-    for (const char of source) {
-        hash ^= char.codePointAt(0) || 0;
-        hash = Math.imul(hash, 0x01000193);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-function stablePreviewSuffix(context) {
-    return `~${previewHash(previewStableNameKey(context))}`;
-}
-
-function previewShortIdentityName(context, maxLength, collision = 0) {
-    const seed = collision > 0
-        ? `${previewStableNameKey(context)}|collision:${collision}`
-        : previewStableNameKey(context);
-    const hash = previewHash(seed);
-    const value = maxLength === 1 ? hash : `~${hash}`;
-    return truncatePreviewName(value, maxLength);
-}
-
-function previewUniqueName(rendered, template, context, mode, maxLength, registry = new Set()) {
-    const tokens = new Set([...template.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(match => match[1].toUpperCase()));
-    const missing = [];
-    if (context.address && !tokens.has('IP') && !tokens.has('D')) missing.push('address');
-    if (context.domain && context.domain !== context.address && !tokens.has('DOMAIN')) missing.push('domain');
-    if (context.port != null && !tokens.has('PORT')) missing.push('port');
-    if (context.proto && !tokens.has('PROTO')) missing.push('protocol');
-    if (context.chain && !tokens.has('CHAIN')) missing.push('chain');
-    if (context.marker && !tokens.has('MARKER')) missing.push('marker');
-    if (context.kind && !tokens.has('KIND')) missing.push('kind');
-    if (context.core && !tokens.has('CORE')) missing.push('core');
-    if (context.transport && !tokens.has('TRANSPORT')) missing.push('transport');
-    if (context.security && !tokens.has('SECURITY')) missing.push('security');
-    if (context.customName && !tokens.has('IPNAME')) missing.push('custom-name');
-    if (context.group && !tokens.has('GROUP')) missing.push('group');
-    if (context.identity) missing.push('identity');
-
-    const suffix = [];
-    if (missing.includes('chain')) suffix.push(mode === 'ascii' ? 'CHAIN' : '🔗');
-    if (missing.includes('marker') && context.marker) suffix.push(context.marker.trim());
-    if (missing.includes('protocol') && context.proto) suffix.push(context.proto);
-    if (missing.includes('port') && context.port != null) suffix.push(String(context.port));
-    if (missing.length) suffix.push(stablePreviewSuffix(context));
-
-    const base = formatPreviewName(rendered, mode, 0);
-    const limit = Number(maxLength);
-    const validLimit = Number.isInteger(limit) && limit > 0 ? limit : undefined;
-    const compose = (suffixValue, collision = 0) => {
-        const suffixText = formatPreviewName(suffixValue, mode, 0);
-        if (validLimit && suffixText) {
-            const suffixLength = previewGraphemes(suffixText).length;
-            if (suffixLength >= validLimit) {
-                return formatPreviewName(previewShortIdentityName(context, validLimit, collision), mode, validLimit);
-            }
-            const separator = base ? ' ' : '';
-            const available = validLimit - suffixLength - (separator ? 1 : 0);
-            const prefix = available > 0 ? truncatePreviewName(base, available) : '';
-            return formatPreviewName(`${prefix}${separator}${suffixText}`, mode, validLimit);
-        }
-        const composed = suffixText ? `${base}${base ? ' ' : ''}${suffixText}` : base;
-        return formatPreviewName(composed, mode, validLimit);
-    };
-
-    let candidate = compose(suffix.join(' '));
-    let collision = 1;
-    while (registry.has(candidate) && collision < 4096) {
-        collision++;
-        candidate = compose(`${stablePreviewSuffix(context)}-${collision}`, collision);
-    }
-    registry.add(candidate);
-    return candidate;
-}
-
-const templatePreviewContexts = [
-    {
-        label: 'Frankfurt / VLESS', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
-        city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '42', latencyAge: '4m',
-        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal', identity: 'normal|xray|vless|1.1.1.1|443|example.com'
-    },
-    {
-        label: 'Frankfurt / Trojan', index: 1, address: '1.1.1.1', port: 443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
-        city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '2h', latency: '38', latencyAge: '4m',
-        customName: '', group: 'Cloudflare Fast', marker: '', proto: 'Trojan', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal', identity: 'normal|sing-box|trojan|1.1.1.1|443|example.com'
-    },
-    {
-        label: 'Named clean IP', index: 2, address: '2.2.2.2', port: 8443, flag: '🇩🇪', country: 'Germany', countryCode: 'DE',
-        city: 'Frankfurt', region: 'Hesse', isp: 'Example CDN', asn: 'AS64500', type: 'Hosting', geoAge: '1d', latency: '61', latencyAge: '18m',
-        customName: 'Fast edge', group: 'Cloudflare Fast', marker: 'C', proto: 'VLESS', chain: false, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal', identity: 'normal|clash|vless|2.2.2.2|8443|example.com'
-    },
-    {
-        label: 'Fragment chain', index: 3, address: 'example.com', port: 443, flag: '🇺🇸', country: 'United States', countryCode: 'US',
-        city: 'Ashburn', region: 'Virginia', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '3h', latency: '', latencyAge: '',
-        customName: '', marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain', identity: 'chain|xray|vless|example.com|443|example.com'
-    },
-    {
-        label: 'Warp endpoint', index: 4, address: '162.159.192.1', port: 2408, flag: '🇺🇸', country: 'United States', countryCode: 'US',
-        city: 'Seattle', region: 'Washington', isp: 'Cloudflare', asn: 'AS13335', type: 'Hosting', geoAge: '5h', latency: '77', latencyAge: '1h',
-        customName: '', marker: 'Warp', proto: 'Warp', chain: false, egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', sni: '', host: '', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp', identity: 'warp|wireguard|162.159.192.1|2408'
-    }
-];
+// Preview rendering is server-authoritative. Keeping parsing, fallback semantics,
+// token availability, and uniqueness in the backend prevents this static client
+// from drifting from subscription output.
 
 let namePreviewRequest = 0;
 let namePreviewTimer;
+let namePreviewController;
 
 function renderNamePreviewResult(result) {
     const preview = document.getElementById('nameTemplatePreview');
     const collisions = document.getElementById('nameTemplateCollisions');
     const diagnostics = document.getElementById('nameTemplateDiagnostics');
+    const tokenHelp = document.getElementById('nameTemplateTokenHelp');
     const input = document.getElementById('nameTemplate');
     if (!preview || !collisions || !diagnostics) return;
+
+    if (tokenHelp && Array.isArray(result.tokenCatalog)) {
+        tokenHelp.replaceChildren(...result.tokenCatalog.map(item => {
+            const line = document.createElement('div');
+            const availability = result.tokenAvailability?.[item.token];
+            const count = availability ? `; ${availability.available}/${availability.total} examples` : '';
+            line.textContent = `{${item.token}} — ${item.description} (${item.availableFor.join(', ')})${count}`;
+            line.title = `Example: ${item.example}; privacy: ${item.privacy}`;
+            return line;
+        }));
+    }
 
     const hasDiagnostics = Boolean(result.diagnostics?.length);
     input?.classList.toggle('name-template-invalid', hasDiagnostics);
@@ -382,7 +169,8 @@ function renderNamePreviewResult(result) {
 
     diagnostics.replaceChildren(...(result.diagnostics || []).map(item => {
         const line = document.createElement('div');
-        line.textContent = `${item.message} (characters ${item.start + 1}-${Math.max(item.start + 1, item.end)})`;
+        const location = item.line ? `line ${item.line}, column ${item.column}` : `characters ${item.start + 1}-${Math.max(item.start + 1, item.end)}`;
+        line.textContent = `${item.message} (${location})`;
         return line;
     }));
 
@@ -416,36 +204,19 @@ function renderNamePreviewResult(result) {
     collisions.replaceChildren(intro, list);
 }
 
-function renderLocalNamePreviewFallback(template, mode, maxLength) {
-    const rawNames = templatePreviewContexts.map(context => renderPreviewTemplate(template, context));
-    if (rawNames.some(name => name === null)) {
-        renderNamePreviewResult({ diagnostics: [{ message: 'Invalid template syntax.', start: 0, end: template.length }], rows: [], collisions: [] });
-        return;
-    }
-    const registry = new Set([
-        '✅ Selector', 'direct', 'dns-remote', 'dns-direct', 'dns-anti-sanction', 'dns-fake', 'hosts', 'tun-in', 'mixed-in',
-        '💦 Best Ping 🚀', '💦 🔗 Best Ping 🚀', '💦 Best Ping D 🚀', '💦 🔗 Best Ping D 🚀',
-        '💦 Warp - Best Ping 🚀', '💦 WoW - Best Ping 🚀',
-        '💦 Warp Pro - Best Ping 🚀', '💦 WoW Pro - Best Ping 🚀'
-    ]);
-    const rows = templatePreviewContexts.map((context, index) => ({
-        label: context.label,
-        rawName: formatPreviewName(rawNames[index], mode, maxLength),
-        finalName: previewUniqueName(rawNames[index], template, context, mode, maxLength, registry)
-    }));
-    renderNamePreviewResult({ diagnostics: [], rows, collisions: [] });
-}
-
 function updateNameTemplatePreview() {
     const input = document.getElementById('nameTemplate');
     if (!input) return;
     clearTimeout(namePreviewTimer);
+    namePreviewController?.abort();
     // Invalidate an already-running request immediately. Otherwise a request
     // for an older template can finish after the user clears the field and
     // repaint a preview that no longer matches the form.
     const requestId = ++namePreviewRequest;
     namePreviewTimer = setTimeout(async () => {
-        const template = input.value.trim();
+        // Send the exact editor value so literal whitespace follows the same
+        // server parser and snapshot contract as the saved setting.
+        const template = input.value;
         const mode = document.getElementById('nameFormat')?.value || 'readable';
         const requestedLength = Number(document.getElementById('nameMaxLength')?.value || 0);
         // Keep the local fallback aligned with backend validation: a non-zero
@@ -454,27 +225,39 @@ function updateNameTemplatePreview() {
             && (requestedLength === 0 || requestedLength >= 8)
             ? requestedLength
             : 0;
-        if (!template) {
-            renderNamePreviewResult({ diagnostics: [], rows: [], collisions: [] });
+        if (!template.trim()) {
+            renderNamePreviewResult({ diagnostics: [], rows: [], collisions: [],
+                tokenCatalog: [],
+                tokenAvailability: {}
+            });
             document.getElementById('nameTemplatePreview').textContent = 'Set a template to preview generated names.';
             document.getElementById('nameTemplateCollisions').textContent = 'No collisions analyzed.';
             return;
         }
 
         try {
+            namePreviewController = new AbortController();
             const response = await fetch('./panel/name-preview', {
                 method: 'POST',
                 credentials: 'include',
                 cache: 'no-store',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ template, mode, maxLength })
+                body: JSON.stringify({ template, mode, maxLength }),
+                signal: namePreviewController.signal
             });
             const payload = await response.json();
             if (requestId !== namePreviewRequest) return;
             if (!payload.success) throw new Error(payload.message || 'Preview failed');
             renderNamePreviewResult(payload.body);
-        } catch {
-            if (requestId === namePreviewRequest) renderLocalNamePreviewFallback(template, mode, maxLength);
+        } catch (error) {
+            if (error?.name === 'AbortError' || requestId !== namePreviewRequest) return;
+            renderNamePreviewResult({
+                diagnostics: [{ message: 'Live preview is temporarily unavailable. Apply settings to validate the template on the server.', start: 0, end: 0 }],
+                rows: [],
+                collisions: [],
+                tokenCatalog: [],
+                tokenAvailability: {}
+            });
         }
     }, 120);
 }

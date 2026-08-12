@@ -12,13 +12,13 @@ The panel provides autocomplete while you type. Enter `{` to open the token list
 
 ## Template syntax
 
-Tokens use one pair of braces, for example `{IP}` or `{COUNTRY_CODE}`. Token names are case-insensitive. Optional sections use a non-nested double-bracket pair:
+Tokens use one pair of braces, for example `{IP}` or `{COUNTRY_CODE}`. Token names are case-insensitive. A token can have a local fallback, such as `{CITY|Unknown}`. Optional sections use a non-nested double-bracket pair:
 
 ```text
 {IP}[[ - {IPNAME}]][[ ({LATENCY}ms)]]
 ```
 
-An optional section is omitted when every token inside it is empty or unavailable. This keeps separators and punctuation from being left behind.
+An optional section is omitted when every token inside it is empty or unavailable. It must contain at least one token; literal-only `[[text]]` sections are rejected because they have no condition. This keeps separators and punctuation from being left behind.
 
 Malformed templates are rejected before saving. Examples include:
 
@@ -28,8 +28,10 @@ Malformed templates are rejected before saving. Examples include:
 - `[[{IP}` — unmatched optional section
 - `[[[[{IP}]]]]` — nested optional section
 - `{NOT_A_TOKEN}` — unknown token
+- `{CITY|}` — empty token fallback
+- `[[literal only]]` — optional section without a token
 
-The panel reports the invalid range and the reason. Adjacent valid tokens such as `{IP}{PORT}` are supported.
+The panel reports the invalid range, line/column, and reason. Adjacent valid tokens such as `{IP}{PORT}` are supported.
 
 ## Presets and live preview
 
@@ -56,12 +58,13 @@ The preset menu provides starting points:
 | `{ASN}` | Autonomous system number. |
 | `{TYPE}` | `Hosting`, `Mobile`, or `Residential`, when supplied by geo data. |
 | `{GEO_AGE}` | Age of cached geo data, such as `2h` or `1d`. |
-| `{LATENCY}` | Latest opt-in Worker-to-address latency in milliseconds. |
+| `{GEO_SOURCE}` | `egress`, `dial`, `cached`, or `unavailable`, describing the source of geo data. |
+| `{LATENCY}` | Latest opt-in Worker-to-endpoint latency in milliseconds. |
 | `{LATENCY_AGE}` | Age of the cached latency measurement. |
 | `{IP}` / `{D}` | Dial address. `{D}` is the legacy alias. |
 | `{IPNAME}` | Name after `#` in a Clean IP entry. |
 | `{GROUP}` | Label from the Address groups field. |
-| `{EGRESS_IP}` | Address from which traffic actually exits, when it can be determined. |
+| `{EGRESS_IP}` | Known address from which traffic exits; empty when it cannot be determined. `{IP}` is always the dial address. |
 | `{INDEX}` | Config index. |
 | `{PORT}` | Config port. |
 | `{PROTO}` | Protocol, such as `VLESS`, `Trojan`, or `Warp`. |
@@ -101,7 +104,7 @@ When a template omits an identity dimension such as the address, protocol, port,
 🇩🇪Germany VLESS 443 ~a1b2c3d4
 ```
 
-The fingerprint is derived from the config identity rather than list order. Reordering addresses does not rename them. If two genuinely identical rendered names still occur, the later one receives a deterministic `-2`, `-3`, and so on suffix within that output.
+The fingerprint is derived from a canonical config identity rather than list order. Hosts, domains, ports, IPv6 brackets, and trailing root dots are normalized before hashing, so harmless spelling changes do not rename a config. Reordering addresses does not rename them. If two genuinely identical rendered names still occur, the later one receives a deterministic `-2`, `-3`, and so on suffix within that output.
 
 Maximum length is applied after reserving space for the uniqueness suffix, so truncation does not remove the part that distinguishes configs. Fixed selector, DNS, inbound, and URL-test identifiers are reserved so a custom name cannot shadow a client-core identifier.
 
@@ -130,7 +133,7 @@ IPv6 brackets are normalized for matching, and an optional port is ignored when 
 
 ## Geo and egress behavior
 
-Geo tokens describe the address that traffic exits from, not necessarily the Cloudflare address the client dials. In Proxy IP mode the first configured Proxy IP is used as the egress candidate. Otherwise the Worker probes and caches its public egress address. If that cannot be determined, the dial address is used as a fallback.
+`{IP}` and `{D}` describe the address the client dials. Geo tokens prefer the address traffic exits from, not necessarily the Cloudflare address the client dials. In Proxy IP mode the first configured Proxy IP is used as the egress candidate. Otherwise the Worker probes and caches its public egress address. If that cannot be determined, geo may fall back to dial-address data and `{GEO_SOURCE}` reports `dial`; `{EGRESS_IP}` remains empty instead of pretending the dial address is the egress.
 
 A template containing only `{IP}`, `{PORT}`, `{INDEX}`, `{PROTO}`, or other non-geo tokens does not trigger geo-provider requests. Geo lookups use a five-second timeout, an in-isolate memo, a KV cache, stale data when available, and a provider request budget so one failing or rate-limited provider cannot break a subscription.
 
@@ -142,9 +145,9 @@ Use **Regenerate frozen names** to clear snapshots and let the next subscription
 
 ## Latency ranking
 
-Enable **Auto-test config IPs latency** to populate `{LATENCY}` and `{LATENCY_AGE}`. The interval is 10–1440 minutes. Measurements are made from the Worker, not from the user's device, and are intended for relative ranking.
+Enable **Auto-test endpoint latency** to populate `{LATENCY}` and `{LATENCY_AGE}`. The interval is 10–1440 minutes. Measurements are made from the Worker, not from the user's device, and are intended for relative ranking.
 
-The sweep is bounded to a small concurrency, deduplicates addresses, includes configured upstream targets, times out probes, and stores only healthy Cloudflare-edge responses. It runs after a subscription response and never makes a failed probe or KV write fail the subscription. When auto-testing is disabled, cached latency is not rendered as a current `{LATENCY}` value.
+The sweep is bounded to a small concurrency, deduplicates address-and-port endpoints, includes configured upstream targets, probes the same port the config uses, times out probes, and stores only healthy Cloudflare-edge responses. It runs after a subscription response and never makes a failed probe or KV write fail the subscription. When auto-testing is disabled, cached latency is not rendered as a current `{LATENCY}` value.
 
 The Proxy IP page's manual health test is separate and does not populate this token.
 
@@ -153,7 +156,7 @@ The Proxy IP page's manual health test is separate and does not populate this to
 - **Readable** collapses repeated whitespace and preserves Unicode.
 - **Compact** removes unnecessary spacing around `|` and `·` and tightens separator spacing.
 - **ASCII-safe** removes accents and non-ASCII symbols for clients with strict name handling.
-- **Maximum name length** accepts `0` for unlimited or a whole number from 8 to 200. Limits below 8 cannot preserve the uniqueness fingerprint and are rejected. Truncation is Unicode/grapheme-safe.
+- **Maximum name length** accepts `0` for unlimited or a whole number from 8 to 200. The template itself is limited to 200 characters. Limits below 8 cannot preserve the uniqueness fingerprint and are rejected. Truncation is Unicode/grapheme-safe.
 
 Geo privacy has three modes:
 
@@ -165,6 +168,6 @@ Geo privacy has three modes:
 
 ## Migration and fallback behavior
 
-The saved `nameTemplateVersion` is migrated when older settings are loaded. Current migrations canonicalize token spelling without rewriting surrounding user text. Invalid imported settings are rejected by the same parser used by the panel.
+The saved `nameTemplateVersion` is migrated when older settings are loaded. Current migrations normalize Unicode and canonicalize older token spelling without rewriting surrounding user text. Per-token fallbacks use `{TOKEN|value}`. Invalid imported settings are rejected by the same parser used by the panel.
 
 If a template is empty, malformed, or renders no meaningful value for a config, BPB falls back to that config type's classic name instead of emitting an empty client entry. When multiple logical configs share that fallback, a stable identity suffix may be added to keep client identifiers unique. Unknown external config formats are never rewritten.

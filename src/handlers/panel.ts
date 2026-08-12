@@ -11,7 +11,7 @@ import { getGlobals, getMainSettings, subscriptions, clients } from '@settings';
 import { validateSettings } from '@validators';
 import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
-import { buildNamePreview, MIN_NAME_MAX_LENGTH } from '@cores/naming';
+import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH } from '@cores/naming';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -149,14 +149,25 @@ async function previewNames(request: Request, env: Env): Promise<Response> {
     }
 
     try {
-        const body = await request.json() as { template?: unknown; mode?: unknown; maxLength?: unknown };
+        const rawBody = await request.text();
+        if (new TextEncoder().encode(rawBody).byteLength > 16 * 1024) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'Preview request is too large.');
+        }
+
+        const body = JSON.parse(rawBody) as { template?: unknown; mode?: unknown; maxLength?: unknown };
+        if (typeof body.template !== 'string' || body.template.length > MAX_NAME_TEMPLATE_LENGTH) {
+            return respond(false, HttpStatus.BAD_REQUEST, `Template must be at most ${MAX_NAME_TEMPLATE_LENGTH} characters.`);
+        }
+
         const mode = body.mode === 'compact' || body.mode === 'ascii' ? body.mode : 'readable';
+        const hasLength = body.maxLength !== undefined && body.maxLength !== null && body.maxLength !== '';
         const requestedLength = Number(body.maxLength);
-        const maxLength = Number.isInteger(requestedLength)
-            && requestedLength >= MIN_NAME_MAX_LENGTH
-            ? Math.min(200, requestedLength)
-            : undefined;
-        return respond(true, HttpStatus.OK, '', buildNamePreview(String(body.template ?? ''), { mode, maxLength }));
+        if (hasLength && (!Number.isInteger(requestedLength)
+            || (requestedLength !== 0 && (requestedLength < MIN_NAME_MAX_LENGTH || requestedLength > 200)))) {
+            return respond(false, HttpStatus.BAD_REQUEST, `Use 0 for unlimited or a whole number between ${MIN_NAME_MAX_LENGTH} and 200.`);
+        }
+        const maxLength = requestedLength > 0 ? requestedLength : undefined;
+        return respond(true, HttpStatus.OK, '', buildNamePreview(body.template, { mode, maxLength }));
     } catch (error) {
         return respond(false, HttpStatus.BAD_REQUEST, safeError(error));
     }

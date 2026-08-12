@@ -1,7 +1,7 @@
 import { HttpStatus, respond, safeError } from '@common';
 import { getSettings, getWarpAccounts } from '@settings';
 import { getConfiguredName, getConfiguredNameWithMetadata, isDomain, parseHostPort } from '@utils';
-import { createNameRegistry, sanitizeConfigName } from './naming';
+import { createNameRegistry, RESERVED_NAME_IDENTIFIERS, sanitizeConfigName, stableNameSuffix } from './naming';
 import JSZip from 'jszip';
 
 export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Response> {
@@ -19,7 +19,7 @@ export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Re
         // Keep the naming registry separate from the sanitized filename set.
         // The naming engine registers its candidate before returning it; using
         // that same set for the ZIP check would append `-2` to every file.
-        const nameRegistry = createNameRegistry();
+        const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
         const fileNames = new Set<string>();
 
         for (const [index, endpoint] of (warpEndpoints ?? []).entries()) {
@@ -71,7 +71,11 @@ export async function getWireguardConfigs(isPro: boolean, env?: Env): Promise<Re
             let collision = 1;
             while (fileNames.has(fileName)) {
                 collision++;
-                fileName = `${originalFileName}-${collision}`;
+                // Sanitization can collapse distinct names (`a/b` and `a_b`).
+                // Use the config identity before falling back to a local retry
+                // so ZIP filenames remain stable when endpoint order changes.
+                const identitySuffix = stableNameSuffix(nameContext);
+                fileName = sanitizeConfigName(`${originalFileName} ${identitySuffix}${collision > 2 ? `-${collision}` : ''}`, 'filename');
             }
             fileNames.add(fileName);
             zip.file(`${fileName}.conf`, conf);

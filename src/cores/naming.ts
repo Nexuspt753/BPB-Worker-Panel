@@ -1,16 +1,63 @@
 import type { GeoInfo } from './geo';
 
-export const NAME_TEMPLATE_VERSION = 3;
+export const NAME_TEMPLATE_VERSION = 5;
+export const MAX_NAME_TEMPLATE_LENGTH = 200;
 // A shorter limit cannot retain the uniqueness fingerprint for realistic
 // subscriptions (for example, one character can represent only 16 hex values).
 // Keep the setting beginner-safe while still allowing genuinely compact names.
 export const MIN_NAME_MAX_LENGTH = 8;
 export const NAME_TEMPLATE_TOKENS = [
     'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE',
-    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
+    'GEO_SOURCE', 'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN', 'EGRESS_IP',
     'B', 'F', 'D', 'C', 'SECURITY', 'TRANSPORT', 'SNI', 'HOST', 'FAMILY', 'DOMAIN',
     'CORE', 'KIND'
 ] as const;
+
+export interface NameTemplateTokenInfo {
+    token: typeof NAME_TEMPLATE_TOKENS[number];
+    description: string;
+    example: string;
+    category: 'geo' | 'latency' | 'identity' | 'connection' | 'legacy';
+    privacy: 'none' | 'dial-address' | 'egress-address' | 'geo-provider';
+    availableFor: string[];
+}
+
+/** Machine-readable token metadata used by the panel and external tooling. */
+export const NAME_TEMPLATE_TOKEN_CATALOG: readonly NameTemplateTokenInfo[] = [
+    { token: 'FLAG', description: 'Country flag emoji.', example: '🇩🇪', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'COUNTRY', description: 'Country name.', example: 'Germany', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'COUNTRY_CODE', description: 'Two-letter country code.', example: 'DE', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'CITY', description: 'City from geo data.', example: 'Frankfurt', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'REGION', description: 'Region or province.', example: 'Hesse', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'ISP', description: 'Internet service provider.', example: 'Cloudflare', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'ASN', description: 'Autonomous system number.', example: 'AS13335', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'TYPE', description: 'Hosting, Mobile, or Residential connection type.', example: 'Hosting', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'GEO_AGE', description: 'Age of the cached geo record.', example: '2h', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'GEO_SOURCE', description: 'Where the geo value came from.', example: 'egress', category: 'geo', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'LATENCY', description: 'Latest opt-in Worker-to-endpoint latency in milliseconds.', example: '42', category: 'latency', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'LATENCY_AGE', description: 'Age of the cached latency record.', example: '4m', category: 'latency', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'IP', description: 'Address the client dials.', example: '1.1.1.1', category: 'identity', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'IPNAME', description: 'Name after # in a Clean IP entry.', example: 'Fast edge', category: 'identity', privacy: 'none', availableFor: ['address'] },
+    { token: 'GROUP', description: 'Configured Address groups label.', example: 'Cloudflare Fast', category: 'identity', privacy: 'none', availableFor: ['address'] },
+    { token: 'INDEX', description: 'Stable display index within an output.', example: '1', category: 'identity', privacy: 'none', availableFor: ['all'] },
+    { token: 'PORT', description: 'Endpoint port.', example: '443', category: 'connection', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'MARKER', description: 'Fragment, custom-domain, or CDN marker.', example: 'F', category: 'identity', privacy: 'none', availableFor: ['address', 'logical'] },
+    { token: 'PROTO', description: 'Protocol such as VLESS, Trojan, or Warp.', example: 'VLESS', category: 'connection', privacy: 'none', availableFor: ['all'] },
+    { token: 'CHAIN', description: 'Chain marker, empty for a direct config.', example: '🔗', category: 'connection', privacy: 'none', availableFor: ['all'] },
+    { token: 'EGRESS_IP', description: 'Known address traffic exits from; empty when unknown.', example: '203.0.113.10', category: 'connection', privacy: 'egress-address', availableFor: ['address'] },
+    { token: 'B', description: 'BPB brand name.', example: 'BPB', category: 'identity', privacy: 'none', availableFor: ['all'] },
+    { token: 'F', description: 'Legacy alias for FLAG.', example: '🇩🇪', category: 'legacy', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'D', description: 'Legacy alias for dial address.', example: '1.1.1.1', category: 'legacy', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'C', description: 'Legacy alias for country.', example: 'Germany', category: 'legacy', privacy: 'geo-provider', availableFor: ['address'] },
+    { token: 'SECURITY', description: 'Connection security such as TLS or None.', example: 'TLS', category: 'connection', privacy: 'none', availableFor: ['address'] },
+    { token: 'TRANSPORT', description: 'Transport such as WS or WireGuard.', example: 'WS', category: 'connection', privacy: 'none', availableFor: ['address'] },
+    { token: 'SNI', description: 'TLS server name.', example: 'example.com', category: 'connection', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'HOST', description: 'HTTP/WebSocket host.', example: 'example.com', category: 'connection', privacy: 'dial-address', availableFor: ['address'] },
+    { token: 'FAMILY', description: 'IPv4, IPv6, or Domain.', example: 'IPv4', category: 'connection', privacy: 'none', availableFor: ['address'] },
+    { token: 'DOMAIN', description: 'Domain used to build the config.', example: 'example.com', category: 'identity', privacy: 'dial-address', availableFor: ['address', 'logical'] },
+    { token: 'CORE', description: 'Generating core.', example: 'xray', category: 'connection', privacy: 'none', availableFor: ['all'] },
+    { token: 'KIND', description: 'Config kind such as Normal, Warp, or Imported.', example: 'Normal', category: 'identity', privacy: 'none', availableFor: ['all'] }
+];
 
 export type NameFormat = 'readable' | 'compact' | 'ascii';
 
@@ -26,7 +73,8 @@ export const RESERVED_NAME_IDENTIFIERS = [
     '✅ Selector', 'direct', 'dns-remote', 'dns-direct', 'dns-anti-sanction', 'dns-fake', 'hosts', 'tun-in', 'mixed-in',
     '💦 Best Ping 🚀', '💦 🔗 Best Ping 🚀', '💦 Best Ping D 🚀', '💦 🔗 Best Ping D 🚀',
     '💦 Warp - Best Ping 🚀', '💦 WoW - Best Ping 🚀',
-    '💦 Warp Pro - Best Ping 🚀', '💦 WoW Pro - Best Ping 🚀'
+    '💦 Warp Pro - Best Ping 🚀', '💦 WoW Pro - Best Ping 🚀',
+    'block', 'dns-out', 'all-proxies', 'all-chains', 'proxy', 'chain'
 ] as const;
 
 export interface NameFormatOptions {
@@ -35,10 +83,12 @@ export interface NameFormatOptions {
 }
 
 export interface NameTemplateDiagnostic {
-    code: 'unmatched-open' | 'unmatched-close' | 'nested-token' | 'empty-token' | 'invalid-token' | 'nested-optional' | 'unmatched-optional' | 'unknown-token' | 'invalid-template';
+    code: 'unmatched-open' | 'unmatched-close' | 'nested-token' | 'empty-token' | 'invalid-token' | 'nested-optional' | 'unmatched-optional' | 'empty-optional' | 'unknown-token' | 'invalid-fallback' | 'unsafe-character' | 'invalid-template';
     message: string;
     start: number;
     end: number;
+    line?: number;
+    column?: number;
 }
 
 /**
@@ -94,9 +144,10 @@ export function parseAddressGroups(entries: readonly string[] = []): Map<string,
 
             let group = activeGroup;
             let addresses = line;
-            const isEndpointLine = /^\[[^\]]+\]:\d+$/u.test(line) || /^[^:]+:\d+$/u.test(line);
+            const isBareIPv6 = /^[0-9a-f:]+(?:\/\d+)?$/iu.test(line);
+            const isEndpointLine = isBareIPv6 || /^\[[^\]]+\]:\d+$/u.test(line) || /^[^:]+:\d+$/u.test(line);
             const inline = isEndpointLine ? null : line.match(/^([^:=|]+?)\s*[:=|]\s*(.+)$/u);
-            if (inline && (inline[2].includes('.') || inline[2].includes('[') || /^[a-z0-9.-]+(?::\\d+)?$/iu.test(inline[2]))) {
+            if (inline && (inline[2].includes('.') || inline[2].includes('[') || inline[2].includes(':') || /^[a-z0-9-]+$/iu.test(inline[2]))) {
                 group = inline[1].trim();
                 addresses = inline[2].trim();
                 activeGroup = group;
@@ -122,13 +173,23 @@ export function findAddressGroup(address: string | undefined, entries: readonly 
  * canonical key for geo, latency, and address-group caches.
  */
 export function normalizeAddress(address: string): string {
-    const trimmed = (address || '').trim();
-    const bare = trimmed.startsWith('[') && trimmed.endsWith(']')
-        ? trimmed.slice(1, -1)
-        : trimmed;
-    // DNS names are case-insensitive, and IPv6 hex digits are equivalent in
-    // either case. This keeps geo, latency, group, and identity keys aligned.
-    return bare.toLowerCase();
+    let trimmed = String(address || '').trim().normalize('NFC');
+    if (!trimmed) return '';
+
+    // Accept the forms users paste into Clean IPs, Address groups, and Warp
+    // endpoints. Strip a port only when it is unambiguous; a bare IPv6 literal
+    // must keep all of its colons.
+    if (trimmed.startsWith('[')) {
+        const close = trimmed.indexOf(']');
+        if (close > 0) trimmed = trimmed.slice(1, close);
+    } else if (/^[^:]+:\d+$/u.test(trimmed)) {
+        trimmed = trimmed.slice(0, trimmed.lastIndexOf(':'));
+    }
+
+    // DNS names are case-insensitive, and a trailing root dot is equivalent.
+    // IPv6 hex digits are also equivalent in either case. This keeps geo,
+    // latency, group, custom-CDN, and identity keys aligned.
+    return trimmed.replace(/\.+$/u, '').toLowerCase();
 }
 
 export interface NameContext {
@@ -144,6 +205,7 @@ export interface NameContext {
     latencyAge?: string;
     geoAge?: string;
     egressIp?: string;
+    geoSource?: 'egress' | 'dial' | 'cached' | 'unavailable';
     proto?: string;
     chain?: boolean;
     countryCode?: string;
@@ -160,10 +222,19 @@ export interface NameContext {
     registry?: NameRegistry;
 }
 
-type TemplateNode =
+export type TemplateNode =
     | { kind: 'text'; value: string }
-    | { kind: 'token'; key: string }
+    | { kind: 'token'; key: string; fallback?: string }
     | { kind: 'optional'; children: TemplateNode[] };
+
+export interface CompiledNameTemplate {
+    source: string;
+    nodes: readonly TemplateNode[];
+    tokens: ReadonlySet<string>;
+    geoTokens: ReadonlySet<string>;
+    latencyTokens: ReadonlySet<string>;
+    requiresEgress: boolean;
+}
 
 // Tokens that legitimately render as an empty string instead of the `--`
 // placeholder, because "not set" is a meaningful state for them.
@@ -192,7 +263,7 @@ function parseTemplateSource(source: string, allowOptional: boolean): TemplateNo
             const end = source.indexOf(']]', cursor + 2);
             if (end === -1) return null;
             const body = source.slice(cursor + 2, end);
-            if (!body.trim() || body.includes('[[') || body.includes(']]')) return null;
+            if (!body.trim() || body.includes('[[') || body.includes(']]') || !/\{[A-Za-z0-9_]+(?:\|[^{}[\]]+)?\}/u.test(body)) return null;
             const children = parseTemplateSource(body, false);
             if (!children) return null;
             nodes.push({ kind: 'optional', children });
@@ -207,8 +278,12 @@ function parseTemplateSource(source: string, allowOptional: boolean): TemplateNo
             const end = source.indexOf('}', cursor + 1);
             if (end === -1) return null;
             const body = source.slice(cursor + 1, end);
-            if (!/^[A-Za-z0-9_]+$/.test(body)) return null;
-            nodes.push({ kind: 'token', key: body.toUpperCase() });
+            const separator = body.indexOf('|');
+            const key = separator === -1 ? body : body.slice(0, separator);
+            const fallback = separator === -1 ? undefined : body.slice(separator + 1).trim();
+            if (!/^[A-Za-z0-9_]+$/.test(key)
+                || (separator !== -1 && (!fallback || /[{}[\]]/u.test(fallback)))) return null;
+            nodes.push({ kind: 'token', key: key.toUpperCase(), ...(fallback ? { fallback } : {}) });
             cursor = end + 1;
             continue;
         }
@@ -223,7 +298,68 @@ function parseTemplateSource(source: string, allowOptional: boolean): TemplateNo
 }
 
 function parseTemplate(template: string): TemplateNode[] | null {
-    return parseTemplateSource(template, true);
+    return parseTemplateSource(template.normalize('NFC'), true);
+}
+
+const compiledTemplateCache = new Map<string, CompiledNameTemplate>();
+const COMPILED_TEMPLATE_CACHE_LIMIT = 64;
+export const NAME_TEMPLATE_GEO_TOKENS: ReadonlySet<string> = new Set([
+    'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE', 'GEO_SOURCE', 'F', 'C'
+]);
+export const NAME_TEMPLATE_LATENCY_TOKENS: ReadonlySet<string> = new Set(['LATENCY', 'LATENCY_AGE']);
+
+/** Parse once and reuse the immutable AST for all names in one render. */
+export function compileNameTemplate(template: string): CompiledNameTemplate | null {
+    if (typeof template !== 'string') return null;
+    const source = template.normalize('NFC');
+    const cached = compiledTemplateCache.get(source);
+    if (cached) return cached;
+    const nodes = parseTemplate(source);
+    if (!nodes || [...source].some(char => isUnsafeTemplateCodePoint(char.codePointAt(0) ?? 0))) return null;
+    const tokens = new Set<string>();
+    collectTokens(nodes, tokens);
+    // A compiled template is the backend contract, not a permissive partial
+    // renderer. Unknown tokens therefore fail compilation and can only reach
+    // output through the validated fallback path.
+    if ([...tokens].some(token => !KNOWN_TOKENS.has(token))) return null;
+    const geoTokens = new Set([...tokens].filter(token => NAME_TEMPLATE_GEO_TOKENS.has(token)));
+    const latencyTokens = new Set([...tokens].filter(token => NAME_TEMPLATE_LATENCY_TOKENS.has(token)));
+    const compiled: CompiledNameTemplate = {
+        source,
+        nodes,
+        tokens,
+        geoTokens,
+        latencyTokens,
+        requiresEgress: geoTokens.size > 0 || tokens.has('EGRESS_IP')
+    };
+    if (compiledTemplateCache.size >= COMPILED_TEMPLATE_CACHE_LIMIT) {
+        const first = compiledTemplateCache.keys().next().value;
+        if (first) compiledTemplateCache.delete(first);
+    }
+    compiledTemplateCache.set(source, compiled);
+    return compiled;
+}
+
+function diagnosticPosition(template: string, diagnostic: NameTemplateDiagnostic): NameTemplateDiagnostic {
+    const before = template.slice(0, diagnostic.start);
+    const lastBreak = before.lastIndexOf('\n');
+    return {
+        ...diagnostic,
+        line: (before.match(/\n/gu)?.length ?? 0) + 1,
+        column: diagnostic.start - lastBreak
+    };
+}
+
+function isUnsafeTemplateCodePoint(codePoint: number): boolean {
+    return (codePoint >= 0 && codePoint <= 0x1f)
+        || (codePoint >= 0x7f && codePoint <= 0x9f)
+        || (codePoint >= 0x200b && codePoint <= 0x200f)
+        || (codePoint >= 0x202a && codePoint <= 0x202e)
+        || (codePoint >= 0x2060 && codePoint <= 0x206f)
+        || codePoint === 0xfeff
+        || (codePoint >= 0xfdd0 && codePoint <= 0xfdef)
+        || (codePoint & 0xffff) === 0xfffe
+        || (codePoint & 0xffff) === 0xffff;
 }
 
 /** Return actionable, source-positioned errors for the panel and API. */
@@ -240,17 +376,28 @@ export function getNameTemplateDiagnostics(template: unknown): NameTemplateDiagn
     const diagnostics: NameTemplateDiagnostic[] = [];
     const add = (diagnostic: NameTemplateDiagnostic) => {
         if (!diagnostics.some(item => item.code === diagnostic.code && item.start === diagnostic.start && item.end === diagnostic.end)) {
-            diagnostics.push(diagnostic);
+            diagnostics.push(diagnosticPosition(template, diagnostic));
         }
     };
 
+    for (let cursor = 0; cursor < template.length;) {
+        const codePoint = template.codePointAt(cursor) ?? 0;
+        const width = codePoint > 0xffff ? 2 : 1;
+        if (isUnsafeTemplateCodePoint(codePoint)) {
+            add({ code: 'unsafe-character', message: 'Template contains an invisible, control, or directional Unicode character.', start: cursor, end: cursor + width });
+        }
+        cursor += width;
+    }
+
     let optionalDepth = 0;
+    let optionalStart = -1;
     for (let cursor = 0; cursor < template.length;) {
         if (template.startsWith('[[', cursor)) {
             if (optionalDepth > 0) {
                 add({ code: 'nested-optional', message: 'Optional sections cannot be nested.', start: cursor, end: cursor + 2 });
             }
             optionalDepth++;
+            optionalStart = cursor;
             cursor += 2;
             continue;
         }
@@ -258,7 +405,14 @@ export function getNameTemplateDiagnostics(template: unknown): NameTemplateDiagn
             if (optionalDepth === 0) {
                 add({ code: 'unmatched-optional', message: 'Closing ]] has no matching [[.', start: cursor, end: cursor + 2 });
             } else {
+                if (optionalStart >= 0) {
+                    const body = template.slice(optionalStart + 2, cursor);
+                    if (!/\{[A-Za-z0-9_]+(?:\|[^{}[\]]+)?\}/u.test(body)) {
+                        add({ code: 'empty-optional', message: 'Optional sections must contain at least one token.', start: optionalStart, end: cursor + 2 });
+                    }
+                }
                 optionalDepth--;
+                if (optionalDepth === 0) optionalStart = -1;
             }
             cursor += 2;
             continue;
@@ -275,14 +429,19 @@ export function getNameTemplateDiagnostics(template: unknown): NameTemplateDiagn
                 break;
             }
             const body = template.slice(cursor + 1, end);
+            const separator = body.indexOf('|');
+            const tokenName = separator === -1 ? body : body.slice(0, separator);
+            const tokenFallback = separator === -1 ? '' : body.slice(separator + 1);
             if (!body) {
                 add({ code: 'empty-token', message: 'Token name cannot be empty.', start: cursor, end: end + 1 });
             } else if (body.includes('{')) {
                 add({ code: 'nested-token', message: 'Tokens cannot be nested.', start: cursor, end: end + 1 });
-            } else if (!/^[A-Za-z0-9_]+$/.test(body)) {
+            } else if (separator !== -1 && (!tokenFallback.trim() || /[{}[\]]/u.test(tokenFallback))) {
+                add({ code: 'invalid-fallback', message: 'Token fallbacks use {TOKEN|value} and cannot be empty or contain braces/brackets.', start: cursor, end: end + 1 });
+            } else if (!/^[A-Za-z0-9_]+$/.test(tokenName)) {
                 add({ code: 'invalid-token', message: 'Token names may contain only letters, numbers, and underscores.', start: cursor, end: end + 1 });
-            } else if (!KNOWN_TOKENS.has(body.toUpperCase())) {
-                add({ code: 'unknown-token', message: `Unknown token {${body}}.`, start: cursor, end: end + 1 });
+            } else if (!KNOWN_TOKENS.has(tokenName.toUpperCase())) {
+                add({ code: 'unknown-token', message: `Unknown token {${tokenName}}.`, start: cursor, end: end + 1 });
             }
             cursor = end + 1;
             continue;
@@ -307,7 +466,7 @@ export function getNameTemplateDiagnostics(template: unknown): NameTemplateDiagn
 
 export function isValidNameTemplate(template: unknown): template is string {
     return typeof template === 'string'
-        && parseTemplate(template) !== null
+        && compileNameTemplate(template) !== null
         && getNameTemplateDiagnostics(template).length === 0;
 }
 
@@ -318,22 +477,21 @@ export function isValidNameTemplate(template: unknown): template is string {
  */
 export function migrateNameTemplate(template: unknown, version = 1): string {
     if (typeof template !== 'string') return '';
-    if (Number(version) >= NAME_TEMPLATE_VERSION) return template;
-    return template.replace(/\{([A-Za-z0-9_]+)\}/g, (_match, token: string) => `{${token.toUpperCase()}}`);
+    const source = template.normalize('NFC');
+    if (Number(version) >= NAME_TEMPLATE_VERSION) return source;
+    return source.replace(/\{([A-Za-z0-9_]+)(\|[^{}[\]]+)?\}/g, (_match, token: string, fallback = '') => `{${token.toUpperCase()}${fallback}}`);
 }
 
-function collectTokens(nodes: TemplateNode[], output: Set<string>): void {
+function collectTokens(nodes: readonly TemplateNode[], output: Set<string>): void {
     nodes.forEach(node => {
         if (node.kind === 'token') output.add(node.key);
         if (node.kind === 'optional') collectTokens(node.children, output);
     });
 }
 
-export function templateTokens(template: string): Set<string> {
-    const parsed = parseTemplate(template);
-    const tokens = new Set<string>();
-    if (parsed) collectTokens(parsed, tokens);
-    return tokens;
+export function templateTokens(template: string | CompiledNameTemplate): Set<string> {
+    const compiled = typeof template === 'string' ? compileNameTemplate(template) : template;
+    return compiled ? new Set(compiled.tokens) : new Set<string>();
 }
 
 export function formatCacheAge(cachedAt?: number): string {
@@ -362,6 +520,7 @@ function rawTokenValue(key: string, ctx: NameContext, geo?: GeoInfo): string | n
         case 'ASN': return geo?.asn ?? '';
         case 'TYPE': return typeMap(geo);
         case 'GEO_AGE': return ctx.geoAge ?? geoAge(geo);
+        case 'GEO_SOURCE': return ctx.geoSource || '';
         case 'LATENCY': return ctx.latency || '';
         case 'LATENCY_AGE': return ctx.latencyAge || '';
         case 'IP': return ctx.address || '';
@@ -389,18 +548,18 @@ function rawTokenValue(key: string, ctx: NameContext, geo?: GeoInfo): string | n
     }
 }
 
-function hasOptionalValue(nodes: TemplateNode[], ctx: NameContext): boolean {
+function hasOptionalValue(nodes: readonly TemplateNode[], ctx: NameContext): boolean {
     return nodes.some(node => {
         if (node.kind === 'token') {
             const value = rawTokenValue(node.key, ctx, ctx.geo);
-            return value != null && value !== '';
+            return (value != null && value !== '') || Boolean(node.fallback);
         }
         if (node.kind === 'optional') return hasOptionalValue(node.children, ctx);
         return false;
     });
 }
 
-function renderNodes(nodes: TemplateNode[], ctx: NameContext): string {
+function renderNodes(nodes: readonly TemplateNode[], ctx: NameContext): string {
     return nodes.map(node => {
         if (node.kind === 'text') return node.value;
         if (node.kind === 'optional') {
@@ -408,15 +567,20 @@ function renderNodes(nodes: TemplateNode[], ctx: NameContext): string {
         }
 
         const out = rawTokenValue(node.key, ctx, ctx.geo);
+        if (out === '' && node.fallback) return node.fallback;
         if (out === '' && BLANK_OK.has(node.key)) return '';
         return out == null || out === '' ? '--' : out;
     }).join('');
 }
 
+export function renderCompiledName(compiled: CompiledNameTemplate, ctx: NameContext): string {
+    return renderNodes(compiled.nodes, ctx);
+}
+
 export function renderName(template: string, ctx: NameContext): string {
-    const parsed = parseTemplate(template);
-    if (!parsed) return '';
-    return renderNodes(parsed, ctx);
+    const compiled = compileNameTemplate(template);
+    if (!compiled) return '';
+    return renderCompiledName(compiled, ctx);
 }
 
 function splitGraphemes(value: string): string[] {
@@ -451,7 +615,9 @@ export function truncateName(value: string, maxLength?: number): string {
 export function formatName(value: string, options: NameFormatOptions = {}): string {
     const mode = options.mode ?? 'readable';
     let result = value
+        .normalize('NFC')
         .replace(/[\u0000-\u001f\u007f]/gu, '')
+        .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/gu, '')
         .replace(/\s+/gu, ' ')
         .trim();
 
@@ -477,7 +643,12 @@ export function formatName(value: string, options: NameFormatOptions = {}): stri
 
 /** Remove characters that have structural meaning in a specific output. */
 export function sanitizeConfigName(value: string, target: 'tag' | 'uri' | 'filename' | 'remark' = 'tag'): string {
-    let result = value.replace(/[\u0000-\u001f\u007f]/gu, ' ').replace(/\s+/gu, ' ').trim();
+    let result = value
+        .normalize('NFC')
+        .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+        .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim();
     if (target === 'filename') {
         result = result
             .replace(/[\\/:*?"<>|]/gu, '_')
@@ -500,21 +671,43 @@ function fnv1a(value: string): string {
     return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+function fnv1a64(value: string): string {
+    let hash = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    const mask = 0xffffffffffffffffn;
+    for (const char of value) {
+        hash ^= BigInt(char.codePointAt(0) ?? 0);
+        hash = (hash * prime) & mask;
+    }
+    return hash.toString(16).padStart(16, '0');
+}
+
+function canonicalTemplateSource(compiled: CompiledNameTemplate | null, fallback: string): string {
+    if (!compiled) return fallback.normalize('NFC');
+    const serialize = (nodes: readonly TemplateNode[]): string => nodes.map(node => {
+        if (node.kind === 'text') return node.value;
+        if (node.kind === 'token') return `{${node.key}${node.fallback ? `|${node.fallback}` : ''}}`;
+        return `[[${serialize(node.children)}]]`;
+    }).join('');
+    return serialize(compiled.nodes);
+}
+
 export function stableNameKey(ctx: NameContext): string {
-    return ctx.identity ?? [
+    if (ctx.identity != null) return JSON.stringify(['identity', ctx.identity.normalize('NFC')]);
+    return JSON.stringify([
         ctx.kind,
         ctx.core,
         ctx.proto,
         normalizeAddress(ctx.address ?? ''),
         ctx.port ?? '',
-        ctx.domain,
+        normalizeAddress(ctx.domain ?? ''),
         ctx.marker,
         ctx.chain ? 'chain' : 'direct',
         ctx.transport,
         ctx.security,
         ctx.customName,
         ctx.group
-    ].map(value => String(value ?? '')).join('|');
+    ].map(value => String(value ?? '').normalize('NFC')));
 }
 
 export function stableNameFingerprint(ctx: NameContext): string {
@@ -526,7 +719,9 @@ export function stableNameSuffix(ctx: NameContext): string {
 }
 
 export function nameSnapshotKey(template: string, ctx: NameContext): string {
-    return `nameSnapshot:${fnv1a(`${template}|${stableNameKey(ctx)}`)}`;
+    const compiled = compileNameTemplate(template);
+    const canonicalTemplate = canonicalTemplateSource(compiled, template);
+    return `nameSnapshot:v${NAME_TEMPLATE_VERSION}:${fnv1a64(`${canonicalTemplate}|${stableNameKey(ctx)}`)}`;
 }
 
 function missingIdentityDimensions(tokens: Set<string>, ctx: NameContext): string[] {
@@ -622,7 +817,7 @@ export function registerFallbackName(fallback: string, ctx: NameContext, options
 
 export function uniquifyName(
     rendered: string,
-    template: string,
+    template: string | CompiledNameTemplate,
     ctx: NameContext,
     options: NameFormatOptions = {}
 ): string {
@@ -687,6 +882,8 @@ export interface NamePreviewResult {
     diagnostics: NameTemplateDiagnostic[];
     rows: NamePreviewRow[];
     collisions: Array<{ name: string; labels: string[] }>;
+    tokenCatalog: readonly NameTemplateTokenInfo[];
+    tokenAvailability: Record<string, { available: number; total: number }>;
 }
 
 const PREVIEW_CONTEXTS: Array<NameContext & { label: string }> = [
@@ -719,17 +916,26 @@ const PREVIEW_CONTEXTS: Array<NameContext & { label: string }> = [
 
 export function buildNamePreview(template: string, options: NameFormatOptions = {}): NamePreviewResult {
     const diagnostics = getNameTemplateDiagnostics(template);
-    if (diagnostics.length || !isValidNameTemplate(template)) {
-        return { diagnostics, rows: [], collisions: [] };
+    const compiled = compileNameTemplate(template);
+    if (diagnostics.length || !compiled || !isValidNameTemplate(template)) {
+        return { diagnostics, rows: [], collisions: [], tokenCatalog: NAME_TEMPLATE_TOKEN_CATALOG, tokenAvailability: {} };
     }
 
     const registry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
-    const rows = PREVIEW_CONTEXTS.map(({ label, ...context }) => {
-        // Keep the representative matrix aligned with generated configs for
-        // brand-only templates such as `{B}`.
-        const previewContext = { brand: 'BPB', ...context };
-        const rawName = formatName(renderName(template, previewContext), options);
-        const finalName = uniquifyName(rawName, template, { ...previewContext, registry }, options) || '(empty → classic name)';
+    const previewContexts = PREVIEW_CONTEXTS.map(({ label, ...context }) => ({ label, ...({ brand: 'BPB', ...context }) }));
+    const tokenAvailability = Object.fromEntries(NAME_TEMPLATE_TOKENS.map(token => [
+        token,
+        {
+            available: previewContexts.filter(context => {
+                const value = rawTokenValue(token, context, context.geo);
+                return value != null && value !== '';
+            }).length,
+            total: previewContexts.length
+        }
+    ]));
+    const rows = previewContexts.map(({ label, ...context }) => {
+        const rawName = formatName(renderCompiledName(compiled, context), options);
+        const finalName = uniquifyName(rawName, compiled, { ...context, registry }, options) || '(empty → classic name)';
         return { label, rawName, finalName };
     });
 
@@ -743,6 +949,8 @@ export function buildNamePreview(template: string, options: NameFormatOptions = 
     return {
         diagnostics: [],
         rows,
+        tokenCatalog: NAME_TEMPLATE_TOKEN_CATALOG,
+        tokenAvailability,
         collisions: [...grouped.entries()]
             .filter(([, labels]) => labels.length > 1)
             .map(([name, labels]) => ({ name, labels }))

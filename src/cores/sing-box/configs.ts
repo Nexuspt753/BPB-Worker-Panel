@@ -2,7 +2,7 @@ import { Outbound, WireguardEndpoint, Config } from '#types/sing-box';
 import { getConfigAddresses, getConfiguredName, getConfiguredNameWithMetadata, generateRemark, isHttps, isDomain, getProtocols, parseHostPort } from '@utils';
 import { buildChainOutbound, buildUrlTest, buildWarpOutbound, buildWebsocketOutbound } from './outbounds.js';
 import { getSettings, getWarpAccounts } from '@settings';
-import { createNameRegistry } from '../naming';
+import { createNameRegistry, RESERVED_NAME_IDENTIFIERS } from '../naming';
 import { buildRoutingRules } from './routing';
 import { buildMixedInbound, tun } from './inbounds';
 import { buildDNS } from './dns';
@@ -101,7 +101,7 @@ export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<
     const domains = [mainDomain].concatIf(!!customDomain, customDomain);
     const protocols = getProtocols();
     const outbounds: Outbound[] = [];
-    const nameRegistry = createNameRegistry();
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
 
     const tagGroup: TagGroup = {
         '💦 Best Ping 🚀': [],
@@ -183,7 +183,7 @@ export async function getSbWarpConfig(env?: Env): Promise<Response> {
     const { warpEndpoints } = getSettings();
     const warpAccounts = getWarpAccounts();
     const outbounds: WireguardEndpoint[] = [];
-    const nameRegistry = createNameRegistry();
+    const nameRegistry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
 
     const tagGroup: TagGroup = {
         '💦 Warp - Best Ping 🚀': [],

@@ -4,7 +4,7 @@ import { fetchWarpAccounts } from '@api/warp';
 import { safeError } from '@common';
 import { getKvSettings } from '@settings';
 import { setCustomDomain } from '@main';
-import { MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_VERSION, migrateNameTemplate } from '@cores/naming';
+import { isValidNameTemplate, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_VERSION, migrateNameTemplate } from '@cores/naming';
 
 export async function getDataset(env: Env): Promise<{
     settings: KvSettings,
@@ -195,17 +195,21 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
         );
 
         const incomingTemplate = newSettings.nameTemplate;
-        const templateVersion = incomingTemplate !== undefined
+        const rawTemplateVersion = incomingTemplate !== undefined
             // Imported settings from before the version field existed must be
             // treated as version 1 even when the current KV is already newer.
             ? Number(newSettings.nameTemplateVersion ?? 1)
             : Number(currentSettings?.nameTemplateVersion ?? kvSettings.nameTemplateVersion ?? 1);
+        const templateVersion = Number.isInteger(rawTemplateVersion) && rawTemplateVersion >= 1
+            ? rawTemplateVersion
+            : 1;
+        const templateSource = incomingTemplate ?? currentSettings?.nameTemplate ?? kvSettings.nameTemplate;
+        const migratedTemplate = templateVersion > NAME_TEMPLATE_VERSION
+            ? ''
+            : migrateNameTemplate(templateSource, templateVersion);
         const updatedSettings: KvSettings = {
             ...Object.fromEntries(entries),
-            nameTemplate: migrateNameTemplate(
-                incomingTemplate ?? currentSettings?.nameTemplate ?? kvSettings.nameTemplate,
-                templateVersion
-            ),
+            nameTemplate: isValidNameTemplate(migratedTemplate) ? migratedTemplate : '',
             nameTemplateVersion: NAME_TEMPLATE_VERSION,
             panelVersion: VERSION
         };
@@ -220,17 +224,32 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
 
 function normalizeSettings(stored: Partial<KvSettings> | null, defaults: KvSettings): KvSettings {
     const source = stored ?? {};
-    const version = Number(source.nameTemplateVersion ?? 1);
+    const rawVersion = Number(source.nameTemplateVersion ?? 1);
+    const version = Number.isInteger(rawVersion) && rawVersion >= 1 ? rawVersion : 1;
+    const migratedTemplate = version > NAME_TEMPLATE_VERSION
+        ? ''
+        : migrateNameTemplate(source.nameTemplate ?? defaults.nameTemplate, version);
     return {
         ...defaults,
         ...source,
-        nameTemplate: migrateNameTemplate(source.nameTemplate ?? defaults.nameTemplate, version),
+        // Never let a hand-edited, future-version, or partially imported invalid
+        // template rewrite external configs. Empty is the safe, backwards-
+        // compatible behavior and the panel can then show a clean field.
+        nameTemplate: isValidNameTemplate(migratedTemplate) ? migratedTemplate : '',
         nameTemplateVersion: NAME_TEMPLATE_VERSION,
-        nameFormat: source.nameFormat ?? defaults.nameFormat,
+        nameFormat: source.nameFormat === 'readable' || source.nameFormat === 'compact' || source.nameFormat === 'ascii'
+            ? source.nameFormat
+            : defaults.nameFormat,
         nameMaxLength: normalizeNameMaxLength(source.nameMaxLength, defaults.nameMaxLength),
-        nameGeoMode: source.nameGeoMode ?? defaults.nameGeoMode,
+        nameGeoMode: source.nameGeoMode === 'auto' || source.nameGeoMode === 'local' || source.nameGeoMode === 'disabled'
+            ? source.nameGeoMode
+            : defaults.nameGeoMode,
         nameFreezeGeo: source.nameFreezeGeo === true,
-        nameAddressGroups: Array.isArray(source.nameAddressGroups) ? source.nameAddressGroups : defaults.nameAddressGroups
+        nameAddressGroups: Array.isArray(source.nameAddressGroups)
+            ? source.nameAddressGroups.filter((entry): entry is string => typeof entry === 'string').map(entry => entry.trim()).filter(Boolean).slice(0, 200)
+            : defaults.nameAddressGroups,
+        latencyAutoTest: source.latencyAutoTest === true,
+        latencyIntervalMin: normalizeLatencyInterval(source.latencyIntervalMin, defaults.latencyIntervalMin)
     } as KvSettings;
 }
 
@@ -239,6 +258,13 @@ function normalizeNameMaxLength(value: unknown, fallback: number): number {
     return Number.isInteger(length)
         && (length === 0 || (length >= MIN_NAME_MAX_LENGTH && length <= 200))
         ? length
+        : fallback;
+}
+
+function normalizeLatencyInterval(value: unknown, fallback: number): number {
+    const interval = Number(value);
+    return Number.isInteger(interval) && interval >= 10 && interval <= 1440
+        ? interval
         : fallback;
 }
 

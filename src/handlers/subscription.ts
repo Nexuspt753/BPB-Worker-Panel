@@ -7,7 +7,7 @@ import { fallback } from './utils';
 import { getWireguardConfigs } from '@cores/wireguard';
 import { HttpStatus } from '@common';
 import { SharedSettings } from '#types/settings';
-import { sweepLatency } from '@cores/latency';
+import { sweepLatency, type LatencyTarget } from '@cores/latency';
 import { cleanIpHost } from '@cores/naming';
 import { parseHostPort, resolveDNS } from '@cores/utils';
 
@@ -126,7 +126,9 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
         enableIPv6,
         cleanIPs,
         customCdnAddrs,
-        upstreamParams: { upstreamServer }
+        ports,
+        httpsPorts,
+        upstreamParams: { upstreamServer, upstreamPort }
     } = getSettings();
     if (latencyAutoTest !== true) return;
 
@@ -163,22 +165,40 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
     // did this before returning the subscription, so a slow DoH provider could
     // make an otherwise unrelated config download feel broken.
     ctx.waitUntil((async () => {
-        const targets: string[] = [];
+        const targets: LatencyTarget[] = [];
+        const seenTargets = new Set<string>();
+        const addTarget = (address: string | undefined, port = 443) => {
+            const host = address ? parseHostPort(address, true).host || cleanIpHost(address) : '';
+            if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return;
+            const key = `${host.toLowerCase()}|${port}`;
+            if (seenTargets.has(key)) return;
+            seenTargets.add(key);
+            targets.push({ address: host, port });
+        };
+
         if (path === 'warp' || path === 'warp-pro') {
-            targets.push(...(warpEndpoints ?? []).map(endpoint => parseHostPort(endpoint).host).filter(Boolean));
+            for (const endpoint of warpEndpoints ?? []) {
+                const { host, port } = parseHostPort(endpoint, true);
+                addTarget(host, port || 443);
+            }
         } else {
             const domains = [mainDomain].concat(customDomain ? [customDomain] : []);
-            if (upstreamServer) targets.push(upstreamServer);
+            addTarget(upstreamServer, upstreamPort || 443);
+            const isFragment = path === 'fragment';
             for (const domain of domains) {
                 if (!domain) continue;
                 const { ipv4, ipv6 } = await resolveDNS(domain, !enableIPv6).catch(() => ({ ipv4: [], ipv6: [] }));
-                targets.push(
+                const addresses = [
                     domain,
                     ...ipv4,
                     ...(enableIPv6 ? ipv6.map(ip => `[${ip}]`) : []),
                     ...cleanIPs.map(cleanIpHost),
-                    ...(path === 'fragment' ? [] : customCdnAddrs)
-                );
+                    ...(isFragment ? [] : customCdnAddrs)
+                ];
+                const configPorts = ports.filter(port => (!isFragment && domain.endsWith('workers.dev')) || httpsPorts.includes(port));
+                for (const address of addresses) {
+                    for (const port of configPorts) addTarget(address, port);
+                }
             }
         }
         await sweepLatency(env, targets);
