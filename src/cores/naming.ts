@@ -890,27 +890,27 @@ const PREVIEW_CONTEXTS: Array<NameContext & { label: string }> = [
     {
         label: 'Frankfurt / VLESS', index: 1, address: '1.1.1.1', port: 443, countryCode: 'DE',
         geo: { ip: '203.0.113.10', countryCode: 'DE', country: 'Germany', city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 2 * 60 * 60_000 },
-        latency: '42', latencyAge: '4m', marker: '', proto: 'VLESS', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal', identity: 'normal|xray|vless|1.1.1.1|443|example.com'
+        geoSource: 'egress', latency: '42', latencyAge: '4m', marker: '', proto: 'VLESS', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'xray', kind: 'Normal', identity: 'normal|xray|vless|1.1.1.1|443|example.com'
     },
     {
         label: 'Frankfurt / Trojan', index: 1, address: '1.1.1.1', port: 443, countryCode: 'DE',
         geo: { ip: '203.0.113.10', countryCode: 'DE', country: 'Germany', city: 'Frankfurt', region: 'Hesse', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 2 * 60 * 60_000 },
-        latency: '38', latencyAge: '4m', marker: '', proto: 'Trojan', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal', identity: 'normal|sing-box|trojan|1.1.1.1|443|example.com'
+        geoSource: 'egress', latency: '38', latencyAge: '4m', marker: '', proto: 'Trojan', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'IPv4', domain: 'example.com', core: 'sing-box', kind: 'Normal', identity: 'normal|sing-box|trojan|1.1.1.1|443|example.com'
     },
     {
         label: 'Named clean IP', index: 2, address: '2.2.2.2', port: 8443, customName: 'Fast edge', group: 'Cloudflare Fast', countryCode: 'DE',
         geo: { ip: '203.0.113.10', countryCode: 'DE', country: 'Germany', city: 'Frankfurt', region: 'Hesse', isp: 'Example CDN', asn: 'AS64500', type: 'hosting', cachedAt: Date.now() - 24 * 60 * 60_000 },
-        latency: '61', latencyAge: '18m', marker: 'C', proto: 'VLESS', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal', identity: 'normal|clash|vless|2.2.2.2|8443|example.com'
+        geoSource: 'egress', latency: '61', latencyAge: '18m', marker: 'C', proto: 'VLESS', egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'cdn.example.com', family: 'IPv4', domain: 'example.com', core: 'clash', kind: 'Normal', identity: 'normal|clash|vless|2.2.2.2|8443|example.com'
     },
     {
         label: 'Fragment chain', index: 3, address: 'example.com', port: 443, countryCode: 'US',
         geo: { ip: '203.0.113.10', countryCode: 'US', country: 'United States', city: 'Ashburn', region: 'Virginia', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 3 * 60 * 60_000 },
-        marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain', identity: 'chain|xray|vless|example.com|443|example.com'
+        geoSource: 'egress', marker: 'F', proto: 'VLESS', chain: true, egressIp: '203.0.113.10', security: 'TLS', transport: 'WS', sni: 'example.com', host: 'example.com', family: 'Domain', domain: 'example.com', core: 'xray', kind: 'Chain', identity: 'chain|xray|vless|example.com|443|example.com'
     },
     {
         label: 'Warp endpoint', index: 4, address: '162.159.192.1', port: 2408, countryCode: 'US',
         geo: { ip: '162.159.192.1', countryCode: 'US', country: 'United States', city: 'Seattle', region: 'Washington', isp: 'Cloudflare', asn: 'AS13335', type: 'hosting', cachedAt: Date.now() - 5 * 60 * 60_000 },
-        latency: '77', latencyAge: '1h', marker: 'Warp', proto: 'Warp', egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp', identity: 'warp|wireguard|162.159.192.1|2408'
+        geoSource: 'egress', latency: '77', latencyAge: '1h', marker: 'Warp', proto: 'Warp', egressIp: '162.159.192.1', security: 'None', transport: 'WireGuard', family: 'IPv4', domain: '162.159.192.1', core: 'wireguard', kind: 'Warp', identity: 'warp|wireguard|162.159.192.1|2408'
     }
 ];
 

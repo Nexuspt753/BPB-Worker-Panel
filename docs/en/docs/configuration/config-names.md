@@ -129,7 +129,7 @@ Then use `{GROUP}` in a template:
 {GROUP} - {IP}
 ```
 
-IPv6 brackets are normalized for matching, and an optional port is ignored when matching a host. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
+IPv6 brackets are normalized for matching, and an optional port is ignored when matching a host. Bare IPv6 literals and `[IPv6]:port` entries are both accepted. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
 
 ## Geo and egress behavior
 
@@ -139,7 +139,7 @@ A template containing only `{IP}`, `{PORT}`, `{INDEX}`, `{PROTO}`, or other non-
 
 ### Frozen names
 
-Enable **Freeze geo-derived names** when a country, city, or provider change must not rename an existing config. Frozen names are stored by stable config identity and reused on later subscription requests. The feature also uses cached geo data only while generating a new snapshot.
+Enable **Freeze geo-derived names** when a country, city, provider, or known egress-address change must not rename an existing config. This applies to geo tokens and `{EGRESS_IP}`. Frozen names are stored by stable config identity and reused on later subscription requests. The feature also uses cached geo/egress data only while generating a new snapshot.
 
 Use **Regenerate frozen names** to clear snapshots and let the next subscription fetch create them again. The button is intentionally explicit because it can change names in clients.
 

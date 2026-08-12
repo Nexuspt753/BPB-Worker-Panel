@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import {
     buildNamePreview,
     createNameRegistry,
+    NAME_TEMPLATE_TOKENS,
+    NAME_TEMPLATE_TOKEN_CATALOG,
     formatName,
     getNameTemplateDiagnostics,
     isValidNameTemplate,
@@ -184,12 +187,22 @@ describe('config-name templates', () => {
         expect(result.tokenAvailability.IP?.available).toBe(result.tokenAvailability.IP?.total);
         expect(result.tokenCatalog.some(token => token.token === 'GEO_SOURCE')).toBe(true);
 
+        const geoSource = buildNamePreview('{GEO_SOURCE}');
+        expect(geoSource.tokenAvailability.GEO_SOURCE?.available).toBe(geoSource.tokenAvailability.GEO_SOURCE?.total);
+        expect(geoSource.rows.every(row => row.rawName === 'egress')).toBe(true);
+
         const reserved = buildNamePreview('✅ Selector');
         expect(reserved.rows.every(row => row.rawName !== row.finalName)).toBe(true);
 
         const brand = buildNamePreview('{B}');
         expect(brand.rows.every(row => Boolean(row.rawName))).toBe(true);
         expect(brand.rows[0]?.rawName).toBe('BPB');
+    });
+
+    test('keeps the browser autocomplete contract sourced from the backend tuple', () => {
+        expect(NAME_TEMPLATE_TOKEN_CATALOG.map(item => item.token)).toEqual([...NAME_TEMPLATE_TOKENS]);
+        const panelScript = readFileSync(new URL('../src/assets/panel/script.js', import.meta.url), 'utf8');
+        expect(panelScript).toContain("JSON.parse('__NAME_TEMPLATE_TOKENS__')");
     });
 });
 

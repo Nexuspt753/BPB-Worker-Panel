@@ -11,7 +11,7 @@ import { getGlobals, getMainSettings, subscriptions, clients } from '@settings';
 import { validateSettings } from '@validators';
 import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
-import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH } from '@cores/naming';
+import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS } from '@cores/naming';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -74,7 +74,9 @@ async function renderPanel(request: Request, env: Env): Promise<Response> {
     }
 
     const str = await decompressGzipBase64(PANEL_HTML_CONTENT);
-    const html = str.replaceAll('__ICON__', ICON_CONTENT);
+    const html = str
+        .replaceAll('__ICON__', ICON_CONTENT)
+        .replace('__NAME_TEMPLATE_TOKENS__', JSON.stringify(NAME_TEMPLATE_TOKENS));
 
     return new Response(html, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }

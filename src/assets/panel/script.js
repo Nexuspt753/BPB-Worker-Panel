@@ -1,11 +1,8 @@
 const defaultHttpsPorts = [443, 8443, 2053, 2083, 2087, 2096];
 const defaultHttpPorts = [80, 8080, 8880, 2052, 2082, 2086, 2095];
-const nameTemplateTokens = [
-    'FLAG', 'COUNTRY', 'COUNTRY_CODE', 'CITY', 'REGION', 'ISP', 'ASN', 'TYPE', 'GEO_AGE', 'GEO_SOURCE',
-    'LATENCY', 'LATENCY_AGE', 'IP', 'IPNAME', 'GROUP', 'INDEX', 'PORT', 'MARKER', 'PROTO', 'CHAIN',
-    'EGRESS_IP', 'B', 'F', 'D', 'C', 'SECURITY', 'TRANSPORT', 'SNI', 'HOST', 'FAMILY',
-    'DOMAIN', 'CORE', 'KIND'
-];
+// The worker injects the backend token tuple into this marker while bundling
+// the panel, so autocomplete cannot silently drift from the parser/catalog.
+const nameTemplateTokens = JSON.parse('__NAME_TEMPLATE_TOKENS__');
 const nameTemplatePresets = {
     compact: '{FLAG} {IP}:{PORT}',
     detailed: '{MARKER}{FLAG}{COUNTRY} - {IP} [[ - {IPNAME} ]]',

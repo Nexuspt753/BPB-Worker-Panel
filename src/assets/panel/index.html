@@ -612,19 +612,19 @@
                         <div class="form-control">
                             <label for="nameFreezeGeo">Freeze geo-derived names</label>
                             <div><input type="checkbox" id="nameFreezeGeo" name="nameFreezeGeo"></div>
-                            <small class="field-help">Use cached geo data only so provider changes do not rename existing configs.</small>
+                            <small class="field-help">Use cached geo/egress data only so provider or egress changes do not rename existing configs.</small>
                             <button type="button" id="regenerateNameSnapshots" class="button" onclick="regenerateNameSnapshots(this)">Regenerate frozen names</button>
                         </div>
                         <div class="form-control">
                             <label for="nameAddressGroups">Address groups</label>
                             <div><textarea id="nameAddressGroups" name="nameAddressGroups" rows="2"
                                 placeholder="Cloudflare Fast:\n1.1.1.1\n1.0.0.1"></textarea></div>
-                            <small class="field-help">Use a group header followed by addresses, or `Group: address1, address2`, then use {GROUP}. IPv6 may be written as [address]:port.</small>
+                            <small class="field-help">Use a group header followed by addresses, or `Group: address1, address2`, then use {GROUP}. Bare IPv6 and [IPv6]:port are accepted.</small>
                         </div>
                         <div class="name-preview-card" aria-live="polite">
                             <strong>Live examples</strong>
                             <div id="nameTemplatePreview">Set a template to preview generated names.</div>
-                            <small>Use [[optional text]] to omit a section when its tokens have no value. Use {CITY|Unknown} for a per-token fallback. GEO_SOURCE explains whether geo came from egress, dial, or cache; GEO_AGE and LATENCY_AGE show age.</small>
+                            <small>Use [[optional text]] to omit a section when its tokens have no value. Use {CITY|Unknown} for a per-token fallback. GEO_SOURCE explains whether geo came from egress, dial, cache, or is unavailable; GEO_AGE and LATENCY_AGE show age.</small>
                         </div>
                         <div class="name-preview-card" aria-live="polite">
                             <strong>Collision preview</strong>
