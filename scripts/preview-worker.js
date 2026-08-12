@@ -16,8 +16,23 @@ const MOCK_SETTINGS = {
 // The real Worker expects a Cloudflare KV binding. Keep preview state local to
 // this Wrangler process so the UI can be explored without a Cloudflare account.
 const values = new Map([
-    // Avoid the Warp account registration request during a mock preview.
-    ['warpAccounts', '[]']
+    // Avoid the Warp account registration request during a mock preview while
+    // still keeping Warp/WireGuard/Amnezia routes usable. The real project
+    // needs two accounts because WoW uses the second peer.
+    ['warpAccounts', JSON.stringify([
+        {
+            privateKey: '4NyxMUme2zGv5r3QWI0hJBlNglm1J/thoCE55PK29G8=',
+            publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+            warpIPv6: '2606:4700:110:8fd2:11f3:8e67:11d4:3704/128',
+            reserved: 'N16D'
+        },
+        {
+            privateKey: 'aPQwXZBOndL0km0Swo0ArDOoy3bjeZzTu+/d4YHxW04=',
+            publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+            warpIPv6: '2606:4700:110:859d:1029:4dfa:bf63:ff08/128',
+            reserved: 'SmWi'
+        }
+    ])]
 ]);
 
 const wantsJson = (options) => options === 'json' || options?.type === 'json';

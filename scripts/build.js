@@ -67,8 +67,7 @@ async function buildWorker() {
         format: 'esm',
         write: false,
         external: [
-            'cloudflare:sockets',
-            'node:crypto'
+            'cloudflare:sockets'
         ],
         platform: 'browser',
         target: 'esnext',

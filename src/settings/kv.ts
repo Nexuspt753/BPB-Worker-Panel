@@ -37,8 +37,17 @@ export async function getDataset(env: Env): Promise<{
             await env.kv.put('proxySettings', JSON.stringify(settings));
         }
 
-        if (!warpAccounts) {
+        // A previous failed registration or a mock/partial import can leave an
+        // empty or malformed `warpAccounts` value in KV. Treat that the same as
+        // a cache miss; every Warp/WireGuard/Amnezia builder needs both accounts
+        // and otherwise the subscription request fails while destructuring the
+        // first account.
+        if (!hasUsableWarpAccounts(warpAccounts)) {
             warpAccounts = await fetchWarpAccounts(env);
+        }
+
+        if (!hasUsableWarpAccounts(warpAccounts)) {
+            throw new Error('No usable Warp accounts are available.');
         }
 
         if (VERSION !== settings.panelVersion) {
@@ -220,6 +229,21 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
         console.log(error);
         throw new Error(`An error occurred while updating KV: ${safeError(error)}`);
     }
+}
+
+function hasUsableWarpAccounts(value: unknown): value is WarpAccount[] {
+    return Array.isArray(value)
+        && value.length >= 2
+        && value.every(account => account
+            && typeof account === 'object'
+            && typeof account.privateKey === 'string'
+            && account.privateKey.length > 0
+            && typeof account.publicKey === 'string'
+            && account.publicKey.length > 0
+            && typeof account.warpIPv6 === 'string'
+            && account.warpIPv6.length > 0
+            && typeof account.reserved === 'string'
+            && account.reserved.length > 0);
 }
 
 function normalizeSettings(stored: Partial<KvSettings> | null, defaults: KvSettings): KvSettings {

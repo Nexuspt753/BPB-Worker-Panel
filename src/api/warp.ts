@@ -1,6 +1,5 @@
 import { WarpAccount } from '#types/settings';
 import { getWarpAccounts } from '@settings';
-import { generateKeyPairSync } from 'node:crypto';
 
 interface WarpKeys {
     publicKey: string;
@@ -70,13 +69,27 @@ async function fetchAccount(key: WarpKeys): Promise<any> {
 }
 
 async function generateKeyPair(): Promise<WarpKeys> {
-    const { publicKey, privateKey } = generateKeyPairSync('x25519', {
-        publicKeyEncoding: { type: 'spki', format: 'der' },
-        privateKeyEncoding: { type: 'pkcs8', format: 'der' }
-    });
+    // Use the Workers-native Web Crypto API instead of Node's crypto module. The
+    // generated Worker is deployed as a standalone script and does not require
+    // the nodejs_compat flag just to refresh Warp accounts.
+    const pair = await crypto.subtle.generateKey(
+        { name: 'X25519' },
+        true,
+        ['deriveBits']
+    ) as CryptoKeyPair;
+    const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+    const privateKey = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
 
     return {
-        publicKey: publicKey.subarray(-32).toString('base64'),
-        privateKey: privateKey.subarray(-32).toString('base64')
+        publicKey: bytesToBase64(publicKey),
+        // PKCS#8 wraps the 32-byte X25519 scalar; the final 32 bytes are the
+        // same raw private key used by the previous Node implementation.
+        privateKey: bytesToBase64(privateKey.slice(-32))
     };
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
 }
