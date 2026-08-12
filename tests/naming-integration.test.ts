@@ -187,7 +187,7 @@ describe('config-name snapshot integration', () => {
         expect(writes.some(write => write.key === 'proxySettings')).toBe(true);
     });
 
-    test('accepts bare IPv6 address groups and rejects unsafe group labels', async () => {
+    test('rejects CIDR address groups and unsafe group labels', async () => {
         const { validateSettings } = await import('../src/settings/validators');
         const { getKvSettings, init } = await import('../src/settings/settings');
         const originalEmbedded = globalThis.EMBEDED_SETTINGS;
@@ -216,6 +216,12 @@ describe('config-name snapshot integration', () => {
             } as never);
             expect(valid).toBeNull();
 
+            const cidr = validateSettings({
+                ...base,
+                nameAddressGroups: ['Fast: 1.1.1.0/24']
+            } as never);
+            expect(cidr?.some(error => error.field === 'Config Name Address Groups')).toBe(true);
+
             const invalid = validateSettings({
                 ...base,
                 nameAddressGroups: [`Fast${String.fromCodePoint(0x202e)}: 1.1.1.1`]
@@ -228,6 +234,41 @@ describe('config-name snapshot integration', () => {
             } else {
                 globalThis.EMBEDED_SETTINGS = originalEmbedded;
             }
+        }
+    });
+
+    test('replaces existing SOCKS and HTTP chain fragments with one generated remark', async () => {
+        const { getURLConfigs } = await import('../src/cores/common');
+        const { getKvSettings, init } = await import('../src/settings/settings');
+        const settings = getKvSettings();
+        const original = structuredClone(settings);
+        const originalFetch = globalThis.fetch;
+        Object.assign(globalThis, {
+            EMBEDED_SETTINGS: {
+                accID: 'test', accEmail: 'test@example.invalid', apiToken: '',
+                vlUUID: '00000000-0000-4000-8000-000000000001', trPass: 'test-password',
+                securePath: 'preview', proxyIpMode: 'off', proxyIPs: [], prefixes: [],
+                fallback: '', dohUrl: 'https://dns.example.invalid/dns-query', mainDomain: 'example.com'
+            }
+        });
+        init(new Request('https://example.com/preview/panel'), {} as Env);
+        Object.assign(settings, {
+            nameTemplate: '{PROTO}', nameTemplateVersion: 5, nameFormat: 'readable', nameMaxLength: 0,
+            nameFreezeGeo: false, nameGeoMode: 'disabled', nameAddressGroups: [], latencyAutoTest: false,
+            protocols: 'vless', ports: [], cleanIPs: [], customCdnAddrs: [], customDomain: '',
+            customConfigs: [], customSubs: [], chainProxy: 'http://user:pass@proxy.example:8080#old',
+            upstreamParams: { upstreamServer: '', upstreamPort: 0 }
+        });
+        globalThis.fetch = (async () => new Response(JSON.stringify({ Answer: [] }))) as typeof fetch;
+
+        try {
+            const decoded = atob(await (await getURLConfigs({} as Env)).text());
+            expect(decoded).toContain('http://dXNlcjpwYXNz@proxy.example:8080#');
+            expect(decoded.match(/#/g)?.length).toBe(1);
+            expect(decoded).not.toContain('#old#');
+        } finally {
+            globalThis.fetch = originalFetch;
+            Object.assign(settings, original);
         }
     });
 

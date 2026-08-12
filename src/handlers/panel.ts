@@ -156,7 +156,15 @@ async function previewNames(request: Request, env: Env): Promise<Response> {
             return respond(false, HttpStatus.BAD_REQUEST, 'Preview request is too large.');
         }
 
-        const body = JSON.parse(rawBody) as { template?: unknown; mode?: unknown; maxLength?: unknown };
+        const body = JSON.parse(rawBody) as {
+            template?: unknown;
+            mode?: unknown;
+            maxLength?: unknown;
+            geoMode?: unknown;
+            latencyAutoTest?: unknown;
+            nameFreezeGeo?: unknown;
+            addressGroups?: unknown;
+        };
         if (typeof body.template !== 'string' || body.template.length > MAX_NAME_TEMPLATE_LENGTH) {
             return respond(false, HttpStatus.BAD_REQUEST, `Template must be at most ${MAX_NAME_TEMPLATE_LENGTH} characters.`);
         }
@@ -169,7 +177,17 @@ async function previewNames(request: Request, env: Env): Promise<Response> {
             return respond(false, HttpStatus.BAD_REQUEST, `Use 0 for unlimited or a whole number between ${MIN_NAME_MAX_LENGTH} and 200.`);
         }
         const maxLength = requestedLength > 0 ? requestedLength : undefined;
-        return respond(true, HttpStatus.OK, '', buildNamePreview(body.template, { mode, maxLength }));
+        const addressGroups = Array.isArray(body.addressGroups)
+            ? body.addressGroups.filter((entry): entry is string => typeof entry === 'string')
+            : undefined;
+        return respond(true, HttpStatus.OK, '', buildNamePreview(body.template, {
+            mode,
+            maxLength,
+            geoMode: body.geoMode === 'local' || body.geoMode === 'disabled' ? body.geoMode : 'auto',
+            latencyAutoTest: body.latencyAutoTest === true,
+            nameFreezeGeo: body.nameFreezeGeo === true,
+            addressGroups
+        }));
     } catch (error) {
         return respond(false, HttpStatus.BAD_REQUEST, safeError(error));
     }

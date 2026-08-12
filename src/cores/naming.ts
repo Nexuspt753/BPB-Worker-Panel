@@ -117,6 +117,10 @@ export function cleanIpHost(entry: string): string {
  */
 function normalizeGroupAddress(address: string): string {
     const value = String(address ?? '').trim();
+    // Address groups currently match individual hosts, not networks. Do not
+    // retain CIDR-looking keys that can never match a generated endpoint.
+    if (value.includes('/')) return '';
+
     const bracketed = value.match(/^\[([^\]]+)\](?::\d+)?$/u);
     if (bracketed) return normalizeAddress(`[${bracketed[1]}]`);
 
@@ -878,6 +882,13 @@ export interface NamePreviewRow {
     finalName: string;
 }
 
+export interface NamePreviewOptions extends NameFormatOptions {
+    geoMode?: 'auto' | 'local' | 'disabled';
+    latencyAutoTest?: boolean;
+    nameFreezeGeo?: boolean;
+    addressGroups?: readonly string[];
+}
+
 export interface NamePreviewResult {
     diagnostics: NameTemplateDiagnostic[];
     rows: NamePreviewRow[];
@@ -914,7 +925,7 @@ const PREVIEW_CONTEXTS: Array<NameContext & { label: string }> = [
     }
 ];
 
-export function buildNamePreview(template: string, options: NameFormatOptions = {}): NamePreviewResult {
+export function buildNamePreview(template: string, options: NamePreviewOptions = {}): NamePreviewResult {
     const diagnostics = getNameTemplateDiagnostics(template);
     const compiled = compileNameTemplate(template);
     if (diagnostics.length || !compiled || !isValidNameTemplate(template)) {
@@ -922,7 +933,28 @@ export function buildNamePreview(template: string, options: NameFormatOptions = 
     }
 
     const registry = createNameRegistry(RESERVED_NAME_IDENTIFIERS);
-    const previewContexts = PREVIEW_CONTEXTS.map(({ label, ...context }) => ({ label, ...({ brand: 'BPB', ...context }) }));
+    const hasGeoMode = options.geoMode !== undefined || options.nameFreezeGeo === true;
+    const effectiveGeoMode = options.nameFreezeGeo === true ? 'local' : options.geoMode;
+    const hasLatencySetting = options.latencyAutoTest !== undefined;
+    const hasGroups = options.addressGroups !== undefined;
+    const previewContexts = PREVIEW_CONTEXTS.map(({ label, ...context }) => {
+        const withSettings: NameContext = {
+            brand: 'BPB',
+            ...context,
+            ...(hasGeoMode && effectiveGeoMode === 'disabled'
+                ? { geo: undefined, countryCode: undefined, egressIp: undefined, geoSource: 'unavailable' as const }
+                : hasGeoMode && effectiveGeoMode === 'local'
+                    ? { geoSource: 'cached' as const }
+                    : {}),
+            ...(hasLatencySetting && !options.latencyAutoTest
+                ? { latency: undefined, latencyAge: undefined }
+                : {}),
+            ...(hasGroups
+                ? { group: findAddressGroup(context.address, options.addressGroups) }
+                : {})
+        };
+        return { label, ...withSettings };
+    });
     const tokenAvailability = Object.fromEntries(NAME_TEMPLATE_TOKENS.map(token => [
         token,
         {

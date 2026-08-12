@@ -42,7 +42,7 @@ The preset menu provides starting points:
 - **Latency ranking:** `[[{LATENCY}ms | ]]{FLAG} {IP}`
 - **Protocol-aware:** `{PROTO} {MARKER}{IP}:{PORT}`
 
-**Live examples** show representative VLESS, Trojan, clean-IP, Fragment/Chain, and Warp results. **Collision preview** displays the raw duplicate names and the final names after the same backend uniqueness logic used by subscriptions. It is an example matrix, not a promise that every deployment contains those exact addresses.
+**Live examples** show representative VLESS, Trojan, clean-IP, Fragment/Chain, and Warp results. The selected geo privacy, latency, and address-group controls are applied to these examples. **Collision preview** displays the raw duplicate names and the final names after the same backend uniqueness logic used by subscriptions. It is an example matrix, not a promise that every deployment contains those exact addresses. If the preview request is unavailable, the panel shows a neutral connection warning rather than marking the template syntax invalid.
 
 ## Available tokens
 
@@ -129,7 +129,7 @@ Then use `{GROUP}` in a template:
 {GROUP} - {IP}
 ```
 
-IPv6 brackets are normalized for matching, and an optional port is ignored when matching a host. Bare IPv6 literals and `[IPv6]:port` entries are both accepted. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
+IPv6 brackets are normalized for matching, and an optional port is ignored when matching a host. Bare IPv6 literals and `[IPv6]:port` entries are both accepted. Address groups match individual hosts only; IPv4/IPv6 CIDR ranges are rejected because subnet matching is not supported. Invalid hosts, empty groups, and malformed entries are reported by backend validation. Later definitions replace an earlier label for the same address.
 
 ## Geo and egress behavior
 

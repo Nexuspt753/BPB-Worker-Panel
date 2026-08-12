@@ -6,6 +6,7 @@
 !src/**
 !scripts/
 !scripts/build.js
+!scripts/build-dev.js
 !scripts/preview-worker.js
 !tests/
 !tests/**
@@ -17,3 +18,6 @@
 !NAT64Prefixes.md
 !docs
 !docs/**
+
+# Local audit report (do not commit or push)
+/config-name-template-audit.md

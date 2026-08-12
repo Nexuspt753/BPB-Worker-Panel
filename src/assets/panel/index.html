@@ -565,9 +565,11 @@
                             <label for="nameTemplate">Config Name Template</label>
                             <div class="template-autocomplete">
                                 <input type="text" id="nameTemplate" name="nameTemplate" autocomplete="off"
-                                    maxlength="200"
+                                    maxlength="200" role="combobox" aria-autocomplete="list"
+                                    aria-controls="nameTemplateSuggestions" aria-expanded="false"
+                                    aria-describedby="nameTemplateHelp nameTemplateDiagnostics"
                                     placeholder="{MARKER}{FLAG}{COUNTRY}{CITY} - {IP} [[ - {IPNAME} ]]">
-                                <ul id="nameTemplateSuggestions" class="template-suggestions" hidden></ul>
+                                <ul id="nameTemplateSuggestions" class="template-suggestions" role="listbox" hidden></ul>
                             </div>
                         </div>
                         <div class="form-control">
@@ -594,9 +596,12 @@
                                 <span class="material-symbols-rounded">keyboard_arrow_down</span>
                             </div>
                         </div>
-                        <div class="form-control">
-                            <label for="nameMaxLength">Maximum name length (0 = unlimited, minimum 8)</label>
-                            <div><input type="number" id="nameMaxLength" name="nameMaxLength" min="0" max="200" step="1"></div>
+                        <div class="form-control name-setting-control">
+                            <label for="nameMaxLength">Maximum name length</label>
+                            <div class="name-setting-content">
+                                <div class="name-setting-input"><input type="number" id="nameMaxLength" name="nameMaxLength" min="0" max="200" step="1"></div>
+                                <small id="nameMaxLengthHelp" class="field-help">0 = unlimited · 8–200 characters</small>
+                            </div>
                         </div>
                         <div class="form-control">
                             <label for="nameGeoMode">Geo privacy</label>
@@ -609,27 +614,34 @@
                                 <span class="material-symbols-rounded">keyboard_arrow_down</span>
                             </div>
                         </div>
-                        <div class="form-control">
+                        <div class="form-control name-setting-control">
                             <label for="nameFreezeGeo">Freeze geo-derived names</label>
-                            <div><input type="checkbox" id="nameFreezeGeo" name="nameFreezeGeo"></div>
-                            <small class="field-help">Use cached geo/egress data only so provider or egress changes do not rename existing configs.</small>
-                            <button type="button" id="regenerateNameSnapshots" class="button" onclick="regenerateNameSnapshots(this)">Regenerate frozen names</button>
+                            <div class="name-setting-content">
+                                <div class="name-setting-actions">
+                                    <input type="checkbox" id="nameFreezeGeo" name="nameFreezeGeo">
+                                    <button type="button" id="regenerateNameSnapshots" class="button" onclick="regenerateNameSnapshots(this)">Regenerate</button>
+                                </div>
+                                <small class="field-help">Keep geo-based names stable between updates.</small>
+                            </div>
                         </div>
-                        <div class="form-control">
+                        <div class="form-control name-setting-control">
                             <label for="nameAddressGroups">Address groups</label>
-                            <div><textarea id="nameAddressGroups" name="nameAddressGroups" rows="2"
-                                placeholder="Cloudflare Fast:\n1.1.1.1\n1.0.0.1"></textarea></div>
-                            <small class="field-help">Use a group header followed by addresses, or `Group: address1, address2`, then use {GROUP}. Bare IPv6 and [IPv6]:port are accepted.</small>
+                            <div class="name-setting-content">
+                                <div class="name-setting-input"><textarea id="nameAddressGroups" name="nameAddressGroups" rows="2"
+                                    placeholder="Cloudflare Fast:\n1.1.1.1\n1.0.0.1"></textarea></div>
+                                <small class="field-help">One group per line · individual hosts only</small>
+                            </div>
                         </div>
-                        <div class="name-preview-card" aria-live="polite">
+                        <div class="name-preview-card">
                             <strong>Live examples</strong>
                             <div id="nameTemplatePreview">Set a template to preview generated names.</div>
-                            <small>Use [[optional text]] to omit a section when its tokens have no value. Use {CITY|Unknown} for a per-token fallback. GEO_SOURCE explains whether geo came from egress, dial, cache, or is unavailable; GEO_AGE and LATENCY_AGE show age.</small>
+                            <small id="nameTemplateHelp">Use [[optional text]] to omit a section when its tokens have no value. Use {CITY|Unknown} for a per-token fallback. GEO_SOURCE explains whether geo came from egress, dial, cache, or is unavailable; GEO_AGE and LATENCY_AGE show age.</small>
                         </div>
-                        <div class="name-preview-card" aria-live="polite">
+                        <div class="name-preview-card">
                             <strong>Collision preview</strong>
                             <div id="nameTemplateCollisions">No collisions analyzed.</div>
-                            <div id="nameTemplateDiagnostics" class="name-template-diagnostics" role="status"></div>
+                            <div id="nameTemplateDiagnostics" class="name-template-diagnostics" role="alert" aria-live="polite"></div>
+                            <div id="nameTemplatePreviewStatus" class="name-template-status" role="status" aria-live="polite"></div>
                         </div>
                         <details class="name-template-catalog">
                             <summary>Token availability</summary>

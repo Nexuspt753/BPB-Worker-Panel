@@ -116,15 +116,19 @@ export async function getURLConfigs(env: Env) {
             registry: nameRegistry
         });
         const chainRemark = `#${encodeURIComponent(chainName)}`;
-        if (chainProxy.startsWith('socks') || chainProxy.startsWith('http')) {
-            const regex = /^(?:socks|http):\/\/([^@]+)@/;
-            const isUserPass = chainProxy.match(regex);
-            const userPass = isUserPass ? isUserPass[1] : false;
-            chainConfig = userPass
-                ? chainProxy.replace(userPass, btoa(userPass)) + chainRemark
-                : chainProxy + chainRemark;
+        // A URI may already contain a user-facing fragment. Remove it before
+        // appending the generated remark so every chain has exactly one `#`.
+        const hashIndex = chainProxy.indexOf('#');
+        const chainWithoutHash = hashIndex === -1 ? chainProxy : chainProxy.slice(0, hashIndex);
+        if (/^(?:socks5?|http):\/\//u.test(chainWithoutHash)) {
+            const userPassMatch = chainWithoutHash.match(/^(?:socks5?|http):\/\/([^@]+)@/u);
+            const userPass = userPassMatch?.[1];
+            const encodedChain = userPass
+                ? chainWithoutHash.replace(userPass, btoa(userPass))
+                : chainWithoutHash;
+            chainConfig = encodedChain + chainRemark;
         } else {
-            chainConfig = chainProxy.split('#')[0] + chainRemark;
+            chainConfig = chainWithoutHash + chainRemark;
         }
     }
 

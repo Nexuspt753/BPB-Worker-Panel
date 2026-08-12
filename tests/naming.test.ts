@@ -167,6 +167,23 @@ describe('config-name templates', () => {
             address: '1.1.1.1',
             group: groups.get('1.1.1.1')
         })).toBe('Cloudflare Fast - 1.1.1.1');
+        expect(parseAddressGroups(['CIDR: 1.1.1.0/24']).has('1.1.1.1')).toBe(false);
+        expect(parseAddressGroups(['CIDR: 2606:4700::/64']).size).toBe(0);
+    });
+
+    test('preview reflects privacy, latency, and address-group controls', () => {
+        const disabled = buildNamePreview('{COUNTRY} {LATENCY}', {
+            geoMode: 'disabled',
+            latencyAutoTest: false
+        });
+        expect(disabled.rows.every(row => row.rawName === '-- --')).toBe(true);
+        expect(disabled.tokenAvailability.COUNTRY?.available).toBe(0);
+        expect(disabled.tokenAvailability.LATENCY?.available).toBe(0);
+
+        const grouped = buildNamePreview('{GROUP}', {
+            addressGroups: ['Cloudflare Fast: 2.2.2.2']
+        });
+        expect(grouped.rows.find(row => row.label === 'Named clean IP')?.rawName).toBe('Cloudflare Fast');
     });
 
     test('compiled templates and snapshot keys are reusable and strong', () => {

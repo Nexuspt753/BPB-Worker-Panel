@@ -32,9 +32,12 @@ function initTemplateAutocomplete() {
 
     const highlight = () => {
         [...list.children].forEach((option, index) => {
-            option.classList.toggle('active', index === openIndex);
+            const active = index === openIndex;
+            option.classList.toggle('active', active);
+            option.setAttribute('aria-selected', active ? 'true' : 'false');
         });
         const active = list.children[openIndex];
+        input.setAttribute('aria-activedescendant', active?.id || '');
         if (active) active.scrollIntoView({ block: 'nearest' });
     };
 
@@ -42,6 +45,8 @@ function initTemplateAutocomplete() {
         list.hidden = true;
         list.replaceChildren();
         openIndex = -1;
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
     };
 
     const tokenContext = () => {
@@ -79,9 +84,12 @@ function initTemplateAutocomplete() {
         if (!context) return hide();
         const options = nameTemplateTokens.filter(token => token.startsWith(context.fragment));
         if (!options.length) return hide();
-        list.replaceChildren(...options.map((token) => {
+        list.replaceChildren(...options.map((token, index) => {
             const option = document.createElement('li');
+            option.id = `name-template-option-${index}`;
             option.dataset.token = token;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
             option.textContent = `{${token}}`;
             option.addEventListener('mousedown', (event) => {
                 event.preventDefault();
@@ -91,6 +99,7 @@ function initTemplateAutocomplete() {
         }));
         openIndex = 0;
         list.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
         // Enter/Tab already commit children[0]; highlight it so the row that will
         // be inserted is visible before the first arrow key.
         highlight();
@@ -140,6 +149,7 @@ function renderNamePreviewResult(result) {
     const preview = document.getElementById('nameTemplatePreview');
     const collisions = document.getElementById('nameTemplateCollisions');
     const diagnostics = document.getElementById('nameTemplateDiagnostics');
+    const status = document.getElementById('nameTemplatePreviewStatus');
     const tokenHelp = document.getElementById('nameTemplateTokenHelp');
     const input = document.getElementById('nameTemplate');
     if (!preview || !collisions || !diagnostics) return;
@@ -156,8 +166,12 @@ function renderNamePreviewResult(result) {
     }
 
     const hasDiagnostics = Boolean(result.diagnostics?.length);
+    const hasTransportError = result.previewError === true;
+    status && (status.textContent = hasTransportError ? 'Preview unavailable. Check your session or connection; Apply still validates on the server.' : '');
     input?.classList.toggle('name-template-invalid', hasDiagnostics);
-    input?.setAttribute('aria-invalid', hasDiagnostics ? 'true' : 'false');
+    input?.classList.toggle('name-template-preview-error', hasTransportError);
+    if (hasDiagnostics) input?.setAttribute('aria-invalid', 'true');
+    else input?.removeAttribute('aria-invalid');
     if (hasDiagnostics) {
         input?.setAttribute('title', result.diagnostics.map(item => item.message).join(' '));
     } else {
@@ -201,6 +215,17 @@ function renderNamePreviewResult(result) {
     collisions.replaceChildren(intro, list);
 }
 
+function updateNameLengthValidity() {
+    const input = document.getElementById('nameMaxLength');
+    if (!input) return true;
+    const value = input.value.trim();
+    const number = Number(value);
+    const valid = value === ''
+        || (Number.isInteger(number) && (number === 0 || (number >= 8 && number <= 200)));
+    input.setCustomValidity(valid ? '' : 'Use 0 for unlimited or a whole number between 8 and 200.');
+    return valid;
+}
+
 function updateNameTemplatePreview() {
     const input = document.getElementById('nameTemplate');
     if (!input) return;
@@ -214,14 +239,21 @@ function updateNameTemplatePreview() {
         // Send the exact editor value so literal whitespace follows the same
         // server parser and snapshot contract as the saved setting.
         const template = input.value;
-        const mode = document.getElementById('nameFormat')?.value || 'readable';
-        const requestedLength = Number(document.getElementById('nameMaxLength')?.value || 0);
-        // Keep the local fallback aligned with backend validation: a non-zero
-        // limit shorter than the fingerprint cannot preserve uniqueness.
-        const maxLength = Number.isInteger(requestedLength)
-            && (requestedLength === 0 || requestedLength >= 8)
-            ? requestedLength
-            : 0;
+        const mode = document.getElementById('nameFormat')?.value || 'readable';        const lengthField = document.getElementById('nameMaxLength');
+        const requestedLength = Number(lengthField?.value || 0);
+        const hasInvalidLength = !updateNameLengthValidity()
+            || (Number.isInteger(requestedLength)
+                && requestedLength !== 0
+                && (requestedLength < 8 || requestedLength > 200));
+        const maxLength = hasInvalidLength ? requestedLength : requestedLength;
+        if (hasInvalidLength) {
+            renderNamePreviewResult({
+                diagnostics: [{ message: 'Use 0 for unlimited or a whole number between 8 and 200.', start: 0, end: 0 }],
+                rows: [], collisions: [], tokenCatalog: [], tokenAvailability: {}
+            });
+            return;
+        }
+
         if (!template.trim()) {
             renderNamePreviewResult({ diagnostics: [], rows: [], collisions: [],
                 tokenCatalog: [],
@@ -239,7 +271,16 @@ function updateNameTemplatePreview() {
                 credentials: 'include',
                 cache: 'no-store',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ template, mode, maxLength }),
+                body: JSON.stringify({
+                    template,
+                    mode,
+                    maxLength,
+                    geoMode: document.getElementById('nameGeoMode')?.value || 'auto',
+                    latencyAutoTest: document.getElementById('latencyAutoTest')?.checked === true,
+                    nameFreezeGeo: document.getElementById('nameFreezeGeo')?.checked === true,
+                    addressGroups: document.getElementById('nameAddressGroups')?.value
+                        .split('\n').map(value => value.trim()).filter(Boolean) || []
+                }),
                 signal: namePreviewController.signal
             });
             const payload = await response.json();
@@ -249,11 +290,12 @@ function updateNameTemplatePreview() {
         } catch (error) {
             if (error?.name === 'AbortError' || requestId !== namePreviewRequest) return;
             renderNamePreviewResult({
-                diagnostics: [{ message: 'Live preview is temporarily unavailable. Apply settings to validate the template on the server.', start: 0, end: 0 }],
+                diagnostics: [],
                 rows: [],
                 collisions: [],
                 tokenCatalog: [],
-                tokenAvailability: {}
+                tokenAvailability: {},
+                previewError: true
             });
         }
     }, 120);
@@ -276,6 +318,7 @@ function initNameTemplateTools() {
         document.getElementById(id)?.addEventListener('input', updateNameTemplatePreview);
         document.getElementById(id)?.addEventListener('change', updateNameTemplatePreview);
     });
+    updateNameLengthValidity();
 }
 
 initTemplateAutocomplete();
@@ -403,21 +446,34 @@ function renderPanel(proxySettings, tgSettings, subscriptions, clients) {
 
     selectElements.forEach(elm => elm.value = proxySettings[elm.id]);
     checkboxElements.forEach(elm => elm.checked = proxySettings[elm.id]);
-    inputElements.forEach(elm => elm.value = proxySettings[elm.id] || '');
+    inputElements.forEach(elm => {
+        const value = proxySettings[elm.id];
+        elm.value = elm.id === 'nameMaxLength' && (value === 0 || value === '0') ? '0' : (value ?? '');
+    });
     textareaElements.forEach(elm => {
         const key = elm.id;
         const element = document.getElementById(key);
-        const value = proxySettings[key]?.join('\r\n');
-        const rowsCount = proxySettings[key].length;
+        const values = Array.isArray(proxySettings[key]) ? proxySettings[key] : [];
+        const value = values.join('\r\n');
+        const rowsCount = values.length;
         element.style.height = 'auto';
         if (rowsCount) element.rows = rowsCount;
         element.value = value;
-        elm.addEventListener('input', () => {
-            elm.style.height = 'auto';
-            elm.style.height = `${elm.scrollHeight}px`;
-        });
+        element.style.height = `${element.scrollHeight}px`;
     });
 
+    if (!globalThis.textareaAutosizeBound) {
+        proxyForm.addEventListener('input', event => {
+            const target = event.target;
+            if (!(target instanceof HTMLTextAreaElement)) return;
+            target.style.height = 'auto';
+            target.style.height = `${target.scrollHeight}px`;
+        });
+        globalThis.textareaAutosizeBound = true;
+    }
+
+    document.querySelectorAll('#subscriptions > .accordion-item').forEach(item => item.remove());
+    document.getElementById('supported-clients').replaceChildren();
     renderPorts(ports.map(Number));
     renderNoises(xrayUdpNoises);
     renderSubscriptions(subscriptions);
@@ -425,15 +481,21 @@ function renderPanel(proxySettings, tgSettings, subscriptions, clients) {
 
     globalThis.initialFormData = new FormData(proxyForm);
     handleProxyFormChanges();
-    proxyForm.addEventListener('input', handleProxyFormChanges);
-    proxyForm.addEventListener('change', handleProxyFormChanges);
+    if (!globalThis.panelListenersBound) {
+        proxyForm.addEventListener('input', handleProxyFormChanges);
+        proxyForm.addEventListener('change', handleProxyFormChanges);
+        globalThis.panelListenersBound = true;
+    }
     handleFragmentMode();
     updateNameTemplatePreview();
 
     if (tgSettings) {
         const tgForm = document.getElementById('telegramForm');
         handleTgFormChanges(tgSettings);
-        tgForm.addEventListener('input', () => handleTgFormChanges());
+        if (!globalThis.telegramListenerBound) {
+            tgForm.addEventListener('input', () => handleTgFormChanges());
+            globalThis.telegramListenerBound = true;
+        }
 
         for (const key in tgSettings) {
             tgForm.elements[key].value = tgSettings[key];
@@ -1154,7 +1216,8 @@ function randPath() {
 async function updatePanel(btn) {
     const confirm = await notify('confirm', 'Update BPB Panel', [
         `BPB Panel verseion ${globalThis.latestVersion} is now available!`,
-        `Please read <a href='https://github.com/bia-pain-bache/BPB-Worker-Panel/releases/latest' target='_blank' rel='noopener noreferrer'>Release notes</a> carefully before updating.`,
+        'Please read the release notes carefully before updating:',
+        'https://github.com/bia-pain-bache/BPB-Worker-Panel/releases/latest',
         'Are you sure?'
     ]);
 
@@ -1206,7 +1269,7 @@ function notify(type, title, text) {
         modal.hidden = false;
 
         modal.querySelector('.message-title').textContent = title;
-        modal.querySelector('.message-text').innerHTML = text.join('\n');
+        modal.querySelector('.message-text').textContent = Array.isArray(text) ? text.join('\n') : String(text ?? '');
 
         const icon = modal.querySelector('.message-icon');
         const isOk = type === 'success' || type === 'info';

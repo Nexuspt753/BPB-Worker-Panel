@@ -306,10 +306,63 @@ h4 {
     line-height: 1.4;
 }
 
+.name-setting-control {
+    align-items: stretch;
+}
+
+.form-control .name-setting-content {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+    width: auto;
+}
+
+.form-control .name-setting-input {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+}
+
+.name-setting-input textarea {
+    text-align: left;
+}
+
+.form-control .name-setting-content .field-help {
+    flex: 0 1 12rem;
+    max-width: 12rem;
+    margin: 0;
+    white-space: normal;
+}
+
+.form-control .name-setting-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    width: auto;
+    flex: 0 0 auto;
+}
+
+.name-setting-actions .button {
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-size-sm);
+}
+
 .name-template-diagnostics {
     margin-top: var(--space-sm);
     color: #fbbf24;
     font-size: var(--font-size-sm);
+}
+
+.name-template-status {
+    margin-top: var(--space-sm);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+.name-template-status:empty {
+    display: none;
 }
 
 .name-template-diagnostics:empty {
@@ -1124,6 +1177,22 @@ table tr:not(:last-child) {
     align-items: center;
     justify-content: center;
     gap: 1rem;
+}
+
+@media only screen and (max-width: 767px) {
+    .form-control .name-setting-content {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .form-control .name-setting-content .field-help {
+        max-width: none;
+    }
+
+    .form-control .name-setting-actions {
+        justify-content: space-between;
+        width: 100%;
+    }
 }
 
 @media only screen and (min-width: 600px) {

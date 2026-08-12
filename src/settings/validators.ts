@@ -287,8 +287,12 @@ function validateNameOptions(form: PanelSettings, errors: ValidationError[]) {
 }
 
 function isValidNameGroupAddress(value: string): boolean {
-    const bareIPv6 = value.match(/^([0-9a-f:]+)(\/(?:12[0-8]|1[01]?[0-9]|[0-9]?[0-9]))?$/iu);
-    if (bareIPv6) return isIPv6(`[${bareIPv6[1]}]${bareIPv6[2] ?? ''}`);
+    // Groups are host mappings, not subnet rules. Reject CIDR explicitly until
+    // the matcher supports prefix membership, rather than accepting entries
+    // that can never match generated endpoint hosts.
+    if (value.includes('/')) return false;
+    const bareIPv6 = value.match(/^([0-9a-f:]+)$/iu);
+    if (bareIPv6) return isIPv6(`[${bareIPv6[1]}]`);
     return isValidHost(value) || isValidHost(value, true);
 }
 
@@ -335,7 +339,7 @@ function validateNameAddressGroups(form: PanelSettings, errors: ValidationError[
         errors.push({
             field: 'Config Name Address Groups',
             message: [
-                'Use a group header such as "Fast:", followed by IPs/domains, or "Fast: 1.1.1.1, 1.0.0.1".',
+                'Use a group header such as "Fast:", followed by individual IPs/domains, or "Fast: 1.1.1.1, 1.0.0.1". CIDR ranges are not supported.',
                 ...(unsafeLabels.length ? ['Group labels cannot contain invisible or directional Unicode characters.'] : []),
                 'Invalid values are:\n',
                 ...invalids.map(value => `+ ${value}`)
