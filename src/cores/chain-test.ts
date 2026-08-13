@@ -162,6 +162,12 @@ export function parseChainProxy(chainProxy: string): ParsedChainProxy {
     try {
         url = new URL(value);
     } catch {
+        // `new URL` rejects out-of-range ports (> 65535) outright, so surface
+        // that as a port problem rather than a generic format error.
+        const port = value.match(/:(\d+)(?=[/?#]|$)/)?.[1];
+        if (port && Number(port) > 65535) {
+            throw new Error('The Chain Proxy config has an out-of-range port (must be 1-65535).');
+        }
         throw new Error('Invalid Chain Proxy config. Use socks5://, http://, vless://, trojan://, ss:// or vmess:// format.');
     }
 

@@ -398,12 +398,19 @@ describe('config-name snapshot integration', () => {
         const { getClWarpConfig } = await import('../src/cores/clash/configs');
         const { getWireguardConfigs } = await import('../src/cores/wireguard');
         const JSZip = (await import('jszip')).default;
-        const { getKvSettings } = await import('../src/settings/settings');
+        const { getKvSettings, setSettings } = await import('../src/settings/settings');
         const settings = getKvSettings();
         const original = structuredClone(settings);
+        const usableWarp = [
+            { privateKey: 'a', publicKey: 'b', warpIPv6: '2606:4700::1', reserved: 'r1' },
+            { privateKey: 'c', publicKey: 'd', warpIPv6: '2606:4700::2', reserved: 'r2' }
+        ];
         const env = {
             kv: {
-                async get() { return null; },
+                async get(key: string) {
+                    if (key === 'warpAccounts') return usableWarp;
+                    return null;
+                },
                 async put() { return undefined; }
             }
         } as unknown as Env;
@@ -421,6 +428,10 @@ describe('config-name snapshot integration', () => {
         });
 
         try {
+            // Warp/WireGuard builders read the registered Warp accounts, which
+            // only `setSettings` populates; seed them from the fake KV first.
+            await setSettings(env);
+
             const xray = JSON.parse(await (await getXrWarpConfigs(false, false, env)).text()) as Array<{ remarks: string }>;
             const xrayNames = xray.map(config => config.remarks);
             expect(new Set(xrayNames).size).toBe(xrayNames.length);
