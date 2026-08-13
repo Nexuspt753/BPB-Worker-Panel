@@ -1,7 +1,7 @@
 {
 	"name": "bpb-panel",
 	"version": "5.1.1",
-	"homepage": "https://github.com/bia-pain-bache/BPB-Worker-Panel",
+	"homepage": "https://github.com/Nexuspt753/BPB-Worker-Panel",
 	"license": "GPL-3.0",
 	"private": true,
 	"type": "module",
@@ -9,7 +9,7 @@
 		"lint": "eslint \"src/**/*.ts\"",
 		"typecheck": "tsc --noEmit",
 		"check": "npm run typecheck",
-		"test": "bun test",
+		"test": "bun test && node _test_oneclick.mjs && node _test_fixes.mjs",
 		"build": "node scripts/build.js",
 		"build-dev": "node scripts/build-dev.js"
 	},
