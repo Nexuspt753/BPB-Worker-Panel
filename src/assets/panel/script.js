@@ -1250,7 +1250,7 @@ function renderChainProxyTestResult(resultEl, result) {
 async function testChainProxy(event) {
     const input = document.getElementById('chainProxy');
     const resultEl = document.getElementById('chainProxyTestResult');
-    const btn = document.getElementById('testChainProxy');
+    const btn = document.getElementById('chainProxyTestButton');
     const chainProxy = input?.value?.trim();
 
     if (!chainProxy) {
