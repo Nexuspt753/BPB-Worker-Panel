@@ -1,7 +1,7 @@
 site_name: BPB Panel
-site_url: https://bia-pain-bache.github.io
-repo_url: https://github.com/bia-pain-bache/BPB-Worker-Panel
-copyright: Copyright &copy; BPB
+site_url: https://nexuspt753.github.io
+repo_url: https://github.com/Nexuspt753/BPB-Worker-Panel
+copyright: Copyright &copy; BPB · modified by Nexuspt753
 
 use_directory_urls: true
 site_dir: ../../site/fa
@@ -68,7 +68,7 @@ extra:
       link: /BPB-Worker-Panel/
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/bia-pain-bache/BPB-Worker-Panel
+      link: https://github.com/Nexuspt753/BPB-Worker-Panel
       name: Source code
 
 plugins:

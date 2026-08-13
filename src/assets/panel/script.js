@@ -393,7 +393,7 @@ async function getUsage() {
 
 async function checkVersion(panelVersion) {
     try {
-        const res = await fetch('https://raw.githubusercontent.com/bia-pain-bache/BPB-Worker-Panel/refs/heads/main/package.json', {
+        const res = await fetch('https://raw.githubusercontent.com/Nexuspt753/BPB-Worker-Panel/refs/heads/main/package.json', {
             cache: 'no-store'
         });
 
@@ -1512,7 +1512,7 @@ async function updatePanel(btn) {
     const confirm = await notify('confirm', 'Update BPB Panel', [
         `BPB Panel verseion ${globalThis.latestVersion} is now available!`,
         'Please read the release notes carefully before updating:',
-        'https://github.com/bia-pain-bache/BPB-Worker-Panel/releases/latest',
+        'https://github.com/Nexuspt753/BPB-Worker-Panel/releases/latest',
         'Are you sure?'
     ]);
 
@@ -1773,7 +1773,7 @@ function renderSubscriptions(subscriptions) {
     for (const [type, { label, categories }] of Object.entries(subscriptions)) {
         const help = elm('a', {
             className: 'help-icon',
-            href: `https://bia-pain-bache.github.io/BPB-Worker-Panel/usage/${type}/`,
+            href: `https://nexuspt753.github.io/BPB-Worker-Panel/usage/${type}/`,
             target: '_blank',
             title: 'Help'
         }, createIcon('info'));

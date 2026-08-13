@@ -2,6 +2,8 @@
 
 ### 🌏 Readme in [Farsi](README_fa.md)
 
+> **Fork of [BPB Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel)** — modified in 2026 and maintained by [Nexuspt753](https://github.com/Nexuspt753) at [Nexuspt753/BPB-Worker-Panel](https://github.com/Nexuspt753/BPB-Worker-Panel). Distributed under the [GPL-3.0](LICENSE) license.
+
 <p align="center">
   <img src="docs/assets/images/panel-overview.jpg" alt="Panel overview">
 </p>
@@ -42,10 +44,10 @@ This project is aimed to provide a user panel to access FREE, SECURE, PRIVATE pr
 
 ## Getting started
 
-- [Installation methods](https://bia-pain-bache.github.io/BPB-Worker-Panel/wizard/)
-- [Configuration](https://bia-pain-bache.github.io/BPB-Worker-Panel/configuration/)
-- [How to use](https://bia-pain-bache.github.io/BPB-Worker-Panel/usage/)
-- [FAQ](https://bia-pain-bache.github.io/BPB-Worker-Panel/faq/)
+- [Installation methods](https://nexuspt753.github.io/BPB-Worker-Panel/wizard/)
+- [Configuration](https://nexuspt753.github.io/BPB-Worker-Panel/configuration/)
+- [How to use](https://nexuspt753.github.io/BPB-Worker-Panel/usage/)
+- [FAQ](https://nexuspt753.github.io/BPB-Worker-Panel/faq/)
 
 ## Supported Clients
 

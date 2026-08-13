@@ -2,6 +2,8 @@
 
 #### 🌏 Readme in [English](README.md)
 
+> **فورک [پنل BPB](https://github.com/bia-pain-bache/BPB-Worker-Panel)** — در سال ۲۰۲۶ تغییر یافته و توسط [Nexuspt753](https://github.com/Nexuspt753) در [Nexuspt753/BPB-Worker-Panel](https://github.com/Nexuspt753/BPB-Worker-Panel) نگهداری می‌شود. تحت مجوز [GPL-3.0](LICENSE) منتشر می‌شود.
+
 <p align="center">
   <img src="docs/assets/images/panel-overview.jpg" alt="Panel overview">
 </p>
@@ -42,10 +44,10 @@
 
 ## شروع به کار
 
-- [روش‌های راه‌اندازی](https://bia-pain-bache.github.io/BPB-Worker-Panel/fa/wizard/)
-- [راهنمای تنظیمات](https://bia-pain-bache.github.io/BPB-Worker-Panel/fa/configuration/)
-- [نحوه‌ی استفاده](https://bia-pain-bache.github.io/BPB-Worker-Panel/fa/usage/)
-- [پرسش‌های متداول (FAQ)](https://bia-pain-bache.github.io/BPB-Worker-Panel/en/faq/)
+- [روش‌های راه‌اندازی](https://nexuspt753.github.io/BPB-Worker-Panel/fa/wizard/)
+- [راهنمای تنظیمات](https://nexuspt753.github.io/BPB-Worker-Panel/fa/configuration/)
+- [نحوه‌ی استفاده](https://nexuspt753.github.io/BPB-Worker-Panel/fa/usage/)
+- [پرسش‌های متداول (FAQ)](https://nexuspt753.github.io/BPB-Worker-Panel/en/faq/)
 
 ## برنامه‌های پشتیبانی شده
 
