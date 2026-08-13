@@ -22,9 +22,9 @@ Object.assign(globalThis, {
     _V2_: atob('djJyYXk='),
     _project_: atob('QlBC'),
     _project_SM_: atob('YnBi'),
-    _repo_: atob('aHR0cHM6Ly9naXRodWIuY29tL2JpYS1wYWluLWJhY2hlL0JQQi1Xb3JrZXItUGFuZWw='),
+    _repo_: atob('aHR0cHM6Ly9naXRodWIuY29tL05leHVzcHQ3NTMvQlBCLVdvcmtlci1QYW5lbA=='),
     _wizard_repo_: atob('aHR0cHM6Ly9naXRodWIuY29tL2JpYS1wYWluLWJhY2hlL0JQQi1XaXphcmQ='),
-    _website_: atob('aHR0cHM6Ly9iaWEtcGFpbi1iYWNoZS5naXRodWIuaW8vQlBCLVdvcmtlci1QYW5lbC8='),
+    _website_: atob('aHR0cHM6Ly9uZXh1c3B0NzUzLmdpdGh1Yi5pby9CUEItV29ya2VyLVBhbmVsLw=='),
     _public_proxy_ip_: atob('YnBiLnlvdXNlZi5pc2VnYXJvLmNvbQ=='),
 });
 
