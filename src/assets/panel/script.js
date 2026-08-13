@@ -1227,6 +1227,57 @@ function randPath() {
     handleProxyFormChanges();
 }
 
+function showChainProxyTestResult(resultEl, kind, text) {
+    if (!resultEl) return;
+    resultEl.hidden = false;
+    resultEl.className = 'chain-proxy-test-result' + (kind ? ` ${kind}` : '');
+    resultEl.textContent = text;
+}
+
+function renderChainProxyTestResult(resultEl, result) {
+    const lines = [result.summary];
+    lines.push(`${result.protocol} ${result.server}:${result.port}`);
+    lines.push(`VPS reachability: ${result.tcpReachable ? `reachable${result.tcpLatencyMs != null ? ` (${result.tcpLatencyMs} ms)` : ''}` : `unreachable${result.tcpError ? ` — ${result.tcpError}` : ''}`}`);
+
+    if (result.tunnelTested) {
+        lines.push(`Relay to ${result.target}: ${result.tunnelOk ? `OK${result.tunnelLatencyMs != null ? ` (${result.tunnelLatencyMs} ms)` : ''}` : `failed${result.tunnelError ? ` — ${result.tunnelError}` : ''}`}`);
+    }
+
+    const kind = result.status === 'ok' ? 'ok' : result.status === 'warn' ? 'warn' : 'error';
+    showChainProxyTestResult(resultEl, kind, lines.join('\n'));
+}
+
+async function testChainProxy(event) {
+    const input = document.getElementById('chainProxy');
+    const resultEl = document.getElementById('chainProxyTestResult');
+    const btn = document.getElementById('testChainProxy');
+    const chainProxy = input?.value?.trim();
+
+    if (!chainProxy) {
+        showChainProxyTestResult(resultEl, 'error', 'Enter a Chain Proxy config to test.');
+        return;
+    }
+
+    const icons = startWaiting(btn, '', 'refresh');
+    showChainProxyTestResult(resultEl, '', `Testing ${chainProxy}…`);
+
+    try {
+        const response = await fetch('./panel/test-chain-proxy', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chainProxy })
+        });
+        const payload = await response.json();
+        if (!payload.success) throw new Error(payload.message || `Request failed (status ${payload.status}).`);
+        renderChainProxyTestResult(resultEl, payload.body);
+    } catch (error) {
+        showChainProxyTestResult(resultEl, 'error', `Could not test the chain proxy: ${error.message}`);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
 async function updatePanel(btn) {
     const confirm = await notify('confirm', 'Update BPB Panel', [
         `BPB Panel verseion ${globalThis.latestVersion} is now available!`,

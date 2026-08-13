@@ -297,10 +297,16 @@
                         </div>
                         <div class="form-control">
                             <label for="chainProxy">Chain Proxy</label>
-                            <div>
+                            <div class="chain-proxy-row">
                                 <input type="text" id="chainProxy" name="chainProxy">
+                                <button type="button" id="testChainProxy" class="button" onclick="testChainProxy(event)">
+                                    <span class="material-symbols-rounded">dns</span>
+                                    Test
+                                </button>
                             </div>
                         </div>
+                        <div id="chainProxyTestResult" class="chain-proxy-test-result" role="status"
+                            aria-live="polite" hidden></div>
                         <div class="form-control">
                             <label for="cleanIPs">
                                 Clean IPs - Domains<a class="url"

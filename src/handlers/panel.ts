@@ -12,6 +12,7 @@ import { validateSettings } from '@validators';
 import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
 import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS } from '@cores/naming';
+import { testChainProxy } from '@cores/chain-test';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -27,6 +28,9 @@ export async function handlePanel(request: Request, env: Env): Promise<Response>
 
         case 'panel/name-preview':
             return previewNames(request, env);
+
+        case 'panel/test-chain-proxy':
+            return testChainProxyEndpoint(request, env);
 
         case 'panel/regenerate-name-snapshots':
             return regenerateNameSnapshots(request, env);
@@ -188,6 +192,29 @@ async function previewNames(request: Request, env: Env): Promise<Response> {
             nameFreezeGeo: body.nameFreezeGeo === true,
             addressGroups
         }));
+    } catch (error) {
+        return respond(false, HttpStatus.BAD_REQUEST, safeError(error));
+    }
+}
+
+async function testChainProxyEndpoint(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') {
+        return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    }
+
+    const auth = await authenticate(request, env);
+    if (!auth) {
+        return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+    }
+
+    try {
+        const body = await request.json() as { chainProxy?: unknown };
+        if (typeof body.chainProxy !== 'string' || !body.chainProxy.trim()) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'Enter a Chain Proxy config to test.');
+        }
+
+        const result = await testChainProxy(body.chainProxy.trim());
+        return respond(true, HttpStatus.OK, '', result);
     } catch (error) {
         return respond(false, HttpStatus.BAD_REQUEST, safeError(error));
     }
