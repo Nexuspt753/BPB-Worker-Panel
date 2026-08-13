@@ -1,4 +1,13 @@
-# 🎉 BPB Next Generation
+# 🎉 BPB Panel — v5.2.0 (Nexuspt753 fork)
+
+## 🍴 Fork additions
+
+This is a fork of [BPB-Worker-Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel) (GPL-3.0) with these additions:
+
+- **Config name templates** — customize subscription config names with tokens (geo, latency, IP, marker, …) and a live preview.
+- **Online chain-proxy test** — test a chain proxy (TCP reachability + SOCKS/HTTP relay) from the panel before applying, without updating the subscription.
+- **One-click subscription import** — device-aware per-client import (Android/iOS/Windows/Linux/macOS) with an honest fallback.
+- **Automatic builds** — `worker.js` is built and attached to releases on GitHub (tag a `v*` push).
 
 This version can only be deployed using [ONE-CLICK online BPB Wizard](https://wizard.bpb-panel.workers.dev) and you can UPDATE and DELETE your panel from panel itself!
 Please note that the wizard worker gets deployed only from [Wizard Github repository](https://github.com/bia-pain-bache/BPB-Wizard/tree/dev) directly for your safety.
@@ -62,7 +71,7 @@ Also manual deployment and BPB Wizard client deployments do not work on this rel
 
 First time contributors: @javadSharifi @gbcwror @doublepleat
 
-![GitHub Downloads (specific asset, specific tag)](https://img.shields.io/github/downloads/Nexuspt753/BPB-Worker-Panel/v5.1.1/worker.js)
+![GitHub Downloads (specific asset, specific tag)](https://img.shields.io/github/downloads/Nexuspt753/BPB-Worker-Panel/v5.2.0/worker.js)
 
 > [!CAUTION]
 > Please update whatever client you use, specially these ones:
