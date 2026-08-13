@@ -38,3 +38,10 @@ jobs:
 
       - name: Run tests
         run: bun test
+
+      - name: Upload worker.js artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker.js
+          path: dist/worker.js
+          if-no-files-found: error

@@ -5,6 +5,9 @@ permissions:
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -14,12 +17,18 @@ jobs:
       - name: Check out the code
         uses: actions/checkout@v4
 
-      - name: Get release version
-        id: get_version
-        run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+      - name: Determine release tag
+        id: get_tag
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Check release version
-        run: echo "Release version is ${{ steps.get_version.outputs.version }}"
+      - name: Check release tag
+        run: echo "Release tag is ${{ steps.get_tag.outputs.tag }}"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -53,11 +62,11 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: dist/*
-          tag: v${{ steps.get_version.outputs.version }}
-          release_name: Release v${{ steps.get_version.outputs.version }}
+          tag: ${{ steps.get_tag.outputs.tag }}
+          release_name: Release ${{ steps.get_tag.outputs.tag }}
           overwrite: true
           file_glob: true
-          prerelease: ${{ github.ref != 'refs/heads/main' }}
-          promote: ${{ github.ref == 'refs/heads/main' }}
-          make_latest: ${{ github.ref == 'refs/heads/main' }}
+          prerelease: ${{ github.ref_type != 'tag' && github.ref != 'refs/heads/main' }}
+          promote: ${{ github.ref_type == 'tag' || github.ref == 'refs/heads/main' }}
+          make_latest: ${{ github.ref_type == 'tag' || github.ref == 'refs/heads/main' }}
           body: ${{ steps.read_release.outputs.RELEASE_BODY }}
