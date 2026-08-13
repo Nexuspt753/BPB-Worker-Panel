@@ -75,13 +75,6 @@ export interface KvSettings {
     customConfigs: string[];
     latencyAutoTest: boolean;
     latencyIntervalMin: number;
-    usageTracking: boolean;
-    chainHealthAlerts: boolean;
-    accessLogging: boolean;
-    rateLimitEnabled: boolean;
-    rateLimitPerHour: number;
-    rateLimitPerDay: number;
-    subscriptionExpiry: number;      // 0 = no expiry, else epoch ms
     nameTemplate: string;             // e.g. "{FLAG}{COUNTRY}{CITY} - {IP} - {IPNAME}"
     nameTemplateVersion: number;
     nameFormat: NameFormat;

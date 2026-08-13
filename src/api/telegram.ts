@@ -190,25 +190,6 @@ async function tgFetch(token: string, method: string, body: any): Promise<any> {
     return res.json();
 }
 
-/**
- * Send a plain text/HTML message to the configured bot owner. No-op when the
- * bot is not configured; used by the chain-proxy health monitor for alerts.
- */
-export async function sendTelegramMessage(env: Env, text: string): Promise<void> {
-    try {
-        const bot = await env.kv.get('telegramBot', { type: 'json' }) as TelegramBot | null;
-        if (!bot?.telegramBotToken || !bot?.telegramUserId) return;
-        const data = await tgFetch(bot.telegramBotToken, 'sendMessage', {
-            chat_id: bot.telegramUserId,
-            text,
-            parse_mode: 'HTML'
-        });
-        if (!data?.ok) throw new Error(data?.description || 'sendMessage failed');
-    } catch (error) {
-        throw new Error(safeError(error));
-    }
-}
-
 function buildUsageText(totalUsage: number, panelUsage: number): string {
     const panelReqPct = Math.ceil(Number(panelUsage) / 100000 * 100);
     const totalReqPct = Math.ceil(Number(totalUsage) / 100000 * 100);
