@@ -5,7 +5,7 @@ import { getXrCustomConfigs, getXrWarpConfigs } from '@cores/xray/configs';
 import { setSettings, getSettings, getGlobals, getKvSettings, getSharedSettings } from '@settings';
 import { fallback } from './utils';
 import { getWireguardConfigs } from '@cores/wireguard';
-import { HttpStatus } from '@common';
+import { HttpStatus, base64EncodeUtf8 } from '@common';
 import { SharedSettings } from '#types/settings';
 import { sweepLatency, type LatencyTarget } from '@cores/latency';
 import { cleanIpHost } from '@cores/naming';
@@ -207,7 +207,10 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
 
 async function shareSettings() {
     const sharedSettings: SharedSettings = getSharedSettings();
-    const body = btoa(JSON.stringify(sharedSettings));
+    // btoa() throws InvalidCharacterError on non-Latin1 input, and shared
+    // settings can legitimately contain Unicode (e.g. flag emojis in
+    // cleanIPs). Encode the UTF-8 bytes instead so the .dat always exports.
+    const body = base64EncodeUtf8(JSON.stringify(sharedSettings));
 
     return new Response(body, {
         status: HttpStatus.OK,

@@ -678,6 +678,21 @@ function toBase64(str) {
     }
 }
 
+// The worker exports shared settings as UTF-8 → base64 (plain btoa would
+// throw on Unicode such as flag emojis in cleanIPs). Decode it back to a
+// proper JS string; files from older builds that used Latin1 still decode.
+function fromBase64(str) {
+    const binary = atob(str);
+    try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(
+            Uint8Array.from(binary, c => c.charCodeAt(0))
+        );
+    } catch {
+        // Not valid UTF-8 → it is a legacy Latin1-encoded file.
+        return binary;
+    }
+}
+
 // Build the one-click action for a client app on the current device.
 //
 // Returns one of:
@@ -923,7 +938,7 @@ async function importFileSettings(event) {
 
     try {
         const text = await file.text();
-        const data = atob(text);
+        const data = fromBase64(text);
         const newSettings = JSON.parse(data);
         const currentSettings = validateSettings();
         const settings = { ...currentSettings, ...newSettings };
@@ -985,7 +1000,7 @@ async function fetchSettings(remoteUrl) {
     }
 
     const data = await res.text();
-    return JSON.parse(atob(data));
+    return JSON.parse(fromBase64(data));
 }
 
 async function renewWarpAccounts(btn) {
