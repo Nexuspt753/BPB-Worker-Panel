@@ -60,6 +60,22 @@ As noted, a Proxy IP fixes the IP for Cloudflare target addresses, but node IPs 
 !!! warning
     VLESS, VMess and Trojan configs with `randomized` ALPN values are incompatible with Clash due to lack of Fingerprint
 
+### Test the chain proxy before applying
+
+A **Test** button sits next to the Chain Proxy field. It checks the proxy **from the Worker itself** (from Cloudflare's edge, not from your device), so you can confirm the proxy is still alive before you apply it and update your subscription:
+
+1. Enter the chain proxy config in the field.
+2. Click **Test** — no need to Apply first.
+3. Read the result: **Working** (green), **Reachable** (amber), or **Unreachable** (red), with the measured latency.
+
+What the test actually verifies depends on the protocol:
+
+* **Socks and Http** — a real tunnel is opened through the proxy to a fixed Cloudflare target, so the result proves the proxy can relay traffic end-to-end.
+* **VLESS, Trojan, Shadowsocks and VMess** — the panel TCP-reaches the proxy server and reports it as *Reachable*, but notes that the encrypted relay cannot be verified from the panel (those handshakes are client-only). Apply once and confirm in your client for the final guarantee.
+
+!!! note
+    The test measures whether the panel (Cloudflare) can reach the VPS behind the proxy. It is a reachability check, not a full client emulation.
+
 This setting applies to **Normal** and **Fragment** subscriptions. After applying, update the subscription. The chained configs will be added alongside original configs using 🔗 icon. This way, when Chain Proxy stops working, you still have access to original configs.
 
 ## Clean IP/Domains
