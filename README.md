@@ -49,6 +49,13 @@ This project is aimed to provide a user panel to access FREE, SECURE, PRIVATE pr
 - [How to use](https://nexuspt753.github.io/BPB-Worker-Panel/usage/)
 - [FAQ](https://nexuspt753.github.io/BPB-Worker-Panel/faq/)
 
+## 🚀 Install this fork
+
+1. **Install BPB Panel** with the official [BPB Wizard](https://wizard.bpb-panel.workers.dev) — it creates the Worker, KV namespace and your panel credentials in a few seconds.
+2. **Switch to this fork's build** — download our `worker.js` from the [latest release](https://github.com/Nexuspt753/BPB-Worker-Panel/releases/latest/download/worker.js). Then in the **Cloudflare Dashboard → your Worker → Edit code**, copy the `const EMBEDED_SETTINGS = {...};` line at the top, replace everything after it with the downloaded file, and click **Deploy**.
+
+Your panel then runs this fork (config-name templates, online chain-proxy test, one-click import) while reusing the wizard-created Worker, KV namespace and secure path.
+
 ## Supported Clients
 
 |       Client        | Minimum version |  Fragment support  |  Warp Pro support  |

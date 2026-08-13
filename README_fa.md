@@ -49,6 +49,13 @@
 - [نحوه‌ی استفاده](https://nexuspt753.github.io/BPB-Worker-Panel/fa/usage/)
 - [پرسش‌های متداول (FAQ)](https://nexuspt753.github.io/BPB-Worker-Panel/en/faq/)
 
+## 🚀 نصب این فورک
+
+1. **پنل BPB رو با [BPB Wizard](https://wizard.bpb-panel.workers.dev) نصب کنید** — ویزارد ورکر، KV namespace و اطلاعات ورود پنل شما رو در چند ثانیه می‌سازه.
+2. **به بیلد این فورک سوئیچ کنید** — `worker.js` ما رو از [آخرین نسخه](https://github.com/Nexuspt753/BPB-Worker-Panel/releases/latest/download/worker.js) دانلود کنید. بعد توی **Cloudflare Dashboard → ورکر خودتون → Edit code**، خط `const EMBEDED_SETTINGS = {...};` بالای فایل رو کپی کنید، همه‌چیز بعدش رو با فایل دانلودشده جایگزین کنید و **Deploy** بزنید.
+
+پنل شما حالا نسخهٔ این فورک رو اجرا می‌کنه (قالب‌های اسم کانفیگ، تست آنلاین Chain Proxy، واردکردن یک‌کلیک) در حالی که ورکر، KV namespace و مسیر امن ساخته‌شده توسط ویزارد همون‌طور استفاده می‌شه.
+
 ## برنامه‌های پشتیبانی شده
 
 <div dir="rtl">
