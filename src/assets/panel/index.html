@@ -38,6 +38,10 @@
                 </svg>
             </span>
         </a>
+        <select id="panelLang" class="panel-settings" title="Language" aria-label="Language">
+            <option value="en">English</option>
+            <option value="fa">فارسی</option>
+        </select>
         <button type="button" id="logout" class="panel-settings" title="Log out" onclick="logout(event)">
             <span class="material-symbols-rounded">logout</span>
         </button>
@@ -238,6 +242,39 @@
                             <div>
                                 <input type="text" id="fallback" name="fallback">
                             </div>
+                        </div>
+                        <div class="form-control">
+                            <label for="usageTracking">Usage statistics</label>
+                            <div><input type="checkbox" id="usageTracking" name="usageTracking"></div>
+                            <small class="field-help">Count subscription downloads per config and client (shown in Diagnostics).</small>
+                        </div>
+                        <div class="form-control">
+                            <label for="chainHealthAlerts">Chain proxy health alerts</label>
+                            <div><input type="checkbox" id="chainHealthAlerts" name="chainHealthAlerts"></div>
+                            <small class="field-help">Re-check the chain proxy on subscription activity and notify via Telegram on status changes.</small>
+                        </div>
+                        <div class="form-control">
+                            <label for="accessLogging">Subscription access log</label>
+                            <div><input type="checkbox" id="accessLogging" name="accessLogging"></div>
+                            <small class="field-help">Record recent subscription fetches (client, type, salted IP hash — never the raw IP).</small>
+                        </div>
+                        <div class="form-control">
+                            <label for="rateLimitEnabled">Rate limit subscriptions</label>
+                            <div><input type="checkbox" id="rateLimitEnabled" name="rateLimitEnabled"></div>
+                            <small class="field-help">Protect the daily request quota from a shared or leaked subscription link.</small>
+                        </div>
+                        <div class="form-control">
+                            <label for="rateLimitPerHour">Rate limit per hour</label>
+                            <div><input type="number" id="rateLimitPerHour" name="rateLimitPerHour" min="0" max="1000000" step="1"></div>
+                        </div>
+                        <div class="form-control">
+                            <label for="rateLimitPerDay">Rate limit per day</label>
+                            <div><input type="number" id="rateLimitPerDay" name="rateLimitPerDay" min="0" max="1000000" step="1"></div>
+                        </div>
+                        <div class="form-control">
+                            <label for="subscriptionExpiry">Subscription expiry</label>
+                            <div><input type="datetime-local" id="subscriptionExpiry" name="subscriptionExpiry"></div>
+                            <small class="field-help">Leave empty for no expiry. After this time, subscription downloads are stopped.</small>
                         </div>
                     </div>
                 </details>
@@ -1204,6 +1241,77 @@
             </div>
         </div>
 
+    </div>
+
+    <div class="form-container container" id="batch-import-section">
+        <div class="header-container">
+            <h2><span class="material-symbols-rounded">playlist_add</span> Batch Import</h2>
+        </div>
+        <div class="container section">
+            <p class="field-help">Paste VLESS / Trojan / Shadowsocks / VMess / SOCKS / HTTP configs (one per line, or a full subscription body). Each line is validated; duplicates are skipped. Imported configs are appended to Single Configs.</p>
+            <textarea id="batchImportTextarea" rows="6" placeholder="vless://…&#10;trojan://…"></textarea>
+            <div class="form-control apply">
+                <button type="button" id="batchImportButton" class="button" onclick="batchImportConfigs()">Import</button>
+            </div>
+            <div id="batchImportResult" class="chain-proxy-test-result" role="status" aria-live="polite"></div>
+        </div>
+    </div>
+
+    <div class="form-container container" id="diagnostics-section">
+        <div class="header-container">
+            <h2><span class="material-symbols-rounded">monitor_heart</span> Diagnostics</h2>
+        </div>
+
+        <div class="container section">
+            <div class="header-container">
+                <h3>Chain proxy health</h3>
+                <button type="button" id="runChainHealth" class="button" onclick="runChainHealthCheck()">Check now</button>
+            </div>
+            <div id="chainHealthResult" class="chain-proxy-test-result" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="container section">
+            <div class="header-container">
+                <h3>Backups</h3>
+                <button type="button" id="refreshBackups" class="button" onclick="loadBackups()">Refresh</button>
+            </div>
+            <div id="backupList" class="diagnostics-list"></div>
+        </div>
+
+        <div class="container section">
+            <div class="header-container">
+                <h3>Usage statistics</h3>
+                <button type="button" id="refreshUsageStats" class="button" onclick="loadUsageStats()">Refresh</button>
+            </div>
+            <div id="usageStatsList" class="diagnostics-list"></div>
+        </div>
+
+        <div class="container section">
+            <div class="header-container">
+                <h3>Subscription access log</h3>
+                <button type="button" id="refreshAccessLog" class="button" onclick="loadAccessLog()">Refresh</button>
+            </div>
+            <div id="accessLogList" class="diagnostics-list"></div>
+        </div>
+
+        <div class="container section">
+            <div class="header-container">
+                <h3>Endpoint health</h3>
+                <button type="button" id="refreshEndpoints" class="button" onclick="loadEndpoints()">Refresh</button>
+            </div>
+            <div id="endpointList" class="diagnostics-list"></div>
+        </div>
+
+        <div class="container section">
+            <div class="header-container">
+                <h3>Worker error log</h3>
+                <span>
+                    <button type="button" id="refreshErrors" class="button" onclick="loadErrorLog()">Refresh</button>
+                    <button type="button" id="clearErrors" class="button delete" onclick="clearErrorLog()">Clear</button>
+                </span>
+            </div>
+            <div id="errorLogList" class="diagnostics-list"></div>
+        </div>
     </div>
 
     <div class="form-container container">

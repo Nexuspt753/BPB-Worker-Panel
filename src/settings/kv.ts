@@ -33,7 +33,14 @@ export async function getDataset(env: Env): Promise<{
             || !('nameFreezeGeo' in storedSettings)
             || !('nameAddressGroups' in storedSettings)
             || !('latencyAutoTest' in storedSettings)
-            || !('latencyIntervalMin' in storedSettings)) {
+            || !('latencyIntervalMin' in storedSettings)
+            || !('usageTracking' in storedSettings)
+            || !('chainHealthAlerts' in storedSettings)
+            || !('accessLogging' in storedSettings)
+            || !('rateLimitEnabled' in storedSettings)
+            || !('rateLimitPerHour' in storedSettings)
+            || !('rateLimitPerDay' in storedSettings)
+            || !('subscriptionExpiry' in storedSettings)) {
             await env.kv.put('proxySettings', JSON.stringify(settings));
         }
 
@@ -193,7 +200,14 @@ export async function updateDataset(env: Env, newSettings?: PanelSettings): Prom
             ['nameFreezeGeo'],
             ['nameAddressGroups'],
             ['latencyAutoTest'],
-            ['latencyIntervalMin']
+            ['latencyIntervalMin'],
+            ['usageTracking'],
+            ['chainHealthAlerts'],
+            ['accessLogging'],
+            ['rateLimitEnabled'],
+            ['rateLimitPerHour'],
+            ['rateLimitPerDay'],
+            ['subscriptionExpiry']
         ];
 
     try {
@@ -273,7 +287,14 @@ function normalizeSettings(stored: Partial<KvSettings> | null, defaults: KvSetti
             ? source.nameAddressGroups.filter((entry): entry is string => typeof entry === 'string').map(entry => entry.trim()).filter(Boolean).slice(0, 200)
             : defaults.nameAddressGroups,
         latencyAutoTest: source.latencyAutoTest === true,
-        latencyIntervalMin: normalizeLatencyInterval(source.latencyIntervalMin, defaults.latencyIntervalMin)
+        latencyIntervalMin: normalizeLatencyInterval(source.latencyIntervalMin, defaults.latencyIntervalMin),
+        usageTracking: source.usageTracking === true,
+        chainHealthAlerts: source.chainHealthAlerts === true,
+        accessLogging: source.accessLogging === true,
+        rateLimitEnabled: source.rateLimitEnabled === true,
+        rateLimitPerHour: normalizeRateLimit(source.rateLimitPerHour, defaults.rateLimitPerHour),
+        rateLimitPerDay: normalizeRateLimit(source.rateLimitPerDay, defaults.rateLimitPerDay),
+        subscriptionExpiry: normalizeSubscriptionExpiry(source.subscriptionExpiry, defaults.subscriptionExpiry)
     } as KvSettings;
 }
 
@@ -289,6 +310,23 @@ function normalizeLatencyInterval(value: unknown, fallback: number): number {
     const interval = Number(value);
     return Number.isInteger(interval) && interval >= 10 && interval <= 1440
         ? interval
+        : fallback;
+}
+
+function normalizeRateLimit(value: unknown, fallback: number): number {
+    const count = Number(value);
+    return Number.isInteger(count) && count >= 0 && count <= 1000000
+        ? count
+        : fallback;
+}
+
+function normalizeSubscriptionExpiry(value: unknown, fallback: number): number {
+    const expiry = Number(value);
+    // 0 means "no expiry"; anything else must be a plausible future/past epoch
+    // millisecond timestamp (>= year 2000) so a hand-edited value can't be
+    // misread as an always-expired or garbage value.
+    return expiry === 0 || (Number.isInteger(expiry) && expiry >= 946684800000)
+        ? expiry
         : fallback;
 }
 

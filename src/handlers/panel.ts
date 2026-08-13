@@ -13,6 +13,15 @@ import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
 import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS } from '@cores/naming';
 import { testChainProxy } from '@cores/chain-test';
+import { getUsageSummary } from '@cores/usage';
+import { readChainHealth, checkChainHealth } from '@cores/chain-health';
+import { sendTelegramMessage } from '@api/telegram';
+import { listBackups, getBackup, snapshotSettings } from '@cores/backup';
+import { readErrors, clearErrors } from '@cores/errorlog';
+import { readAccessLog } from '@cores/accesslog';
+import { getLatencyRecords } from '@cores/latency';
+import { probeAddress, setLatency } from '@cores/latency';
+import { parseHostPort } from '@cores/utils';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
     const { pathname } = getGlobals();
@@ -58,6 +67,39 @@ export async function handlePanel(request: Request, env: Env): Promise<Response>
 
         case 'panel/usage':
             return getUsage(request, env);
+
+        case 'panel/usage-stats':
+            return getUsageStats(request, env);
+
+        case 'panel/chain-health':
+            return getChainHealth(request, env);
+
+        case 'panel/run-chain-health':
+            return runChainHealth(request, env);
+
+        case 'panel/backups':
+            return getBackups(request, env);
+
+        case 'panel/restore-backup':
+            return restoreBackup(request, env);
+
+        case 'panel/error-log':
+            return getErrorLog(request, env);
+
+        case 'panel/clear-error-log':
+            return clearErrorLog(request, env);
+
+        case 'panel/access-log':
+            return getAccessLog(request, env);
+
+        case 'panel/endpoints':
+            return getEndpoints(request, env);
+
+        case 'panel/probe-endpoint':
+            return probeEndpoint(request, env);
+
+        case 'panel/import-configs':
+            return importConfigs(request, env);
 
         case 'panel/logout':
             return logout();
@@ -295,6 +337,10 @@ async function updatePanelSettings(request: Request, env: Env): Promise<Response
         const errors = validateSettings(newSettings);
         if (errors) return respond(false, HttpStatus.BAD_REQUEST, 'Validation Error', errors);
 
+        // Best-effort snapshot of the current settings before applying, so a bad
+        // change can be rolled back. A snapshot failure never blocks the apply.
+        await snapshotSettings(env);
+
         // Persist KV only after a successful deploy so a failed redeploy cannot
         // leave KV and the baked-in env vars disagreeing.
         await updateMainSettings(newSettings);
@@ -377,5 +423,222 @@ async function updateWarpConfigs(request: Request, env: Env): Promise<Response> 
             HttpStatus.INTERNAL_SERVER_ERROR,
             `An error occurred while updating Warp configs: ${safeError(error)}`
         );
+    }
+}
+
+async function getUsageStats(request: Request, env: Env): Promise<Response> {
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        const rows = await getUsageSummary(env);
+        return respond(true, HttpStatus.OK, '', rows);
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function getChainHealth(request: Request, env: Env): Promise<Response> {
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        return respond(true, HttpStatus.OK, '', await readChainHealth(env));
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function runChainHealth(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        const { settings } = await getDataset(env);
+        const { chainProxy } = settings;
+        if (!(chainProxy ?? '').trim()) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'Enter a Chain Proxy config first.');
+        }
+        const state = await checkChainHealth(env, chainProxy, message => sendTelegramMessage(env, message), true);
+        return respond(true, HttpStatus.OK, '', state);
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function getBackups(request: Request, env: Env): Promise<Response> {
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        return respond(true, HttpStatus.OK, '', await listBackups(env));
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function restoreBackup(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        const { ts } = await request.json() as { ts?: unknown };
+        const tsNum = Number(ts);
+        if (!Number.isInteger(tsNum) || tsNum <= 0) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'Invalid backup timestamp.');
+        }
+        const value = await getBackup(env, tsNum);
+        if (value === null) {
+            return respond(false, HttpStatus.NOT_FOUND, 'Backup not found.');
+        }
+
+        // Validate before restoring so a corrupt/hand-edited snapshot can't
+        // inject invalid settings. Reuse the same normalization as a normal apply.
+        const parsed = JSON.parse(value) as PanelSettings;
+        const errors = validateSettings(parsed);
+        if (errors) return respond(false, HttpStatus.BAD_REQUEST, 'Backup failed validation', errors);
+
+        // Snapshot the current (pre-restore) state first so the restore itself
+        // is undoable, then write the restored settings through the same path.
+        await snapshotSettings(env);
+        await updateDataset(env, parsed);
+        return respond(true, HttpStatus.OK, 'Settings restored.');
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function getErrorLog(request: Request, env: Env): Promise<Response> {
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        return respond(true, HttpStatus.OK, '', await readErrors(env));
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function clearErrorLog(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        await clearErrors(env);
+        return respond(true, HttpStatus.OK, 'Error log cleared.');
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function getAccessLog(request: Request, env: Env): Promise<Response> {
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        return respond(true, HttpStatus.OK, '', await readAccessLog(env));
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function getEndpoints(request: Request, env: Env): Promise<Response> {
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        return respond(true, HttpStatus.OK, '', await getLatencyRecords(env));
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function probeEndpoint(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+        const { address, port } = await request.json() as { address?: unknown; port?: unknown };
+        if (typeof address !== 'string' || !address.trim()) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'Enter an address to probe.');
+        }
+        const parsed = parseHostPort(address.trim(), true);
+        const host = parsed.host || address.trim();
+        const probePort = Number(port) || parsed.port || 443;
+        if (!Number.isInteger(probePort) || probePort < 1 || probePort > 65535) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'Invalid port.');
+        }
+        const result = await probeAddress(host, probePort);
+        if (result.healthy) {
+            await setLatency(env, host, result.elapsedMs, probePort);
+        }
+        return respond(true, HttpStatus.OK, '', { address: host, port: probePort, ms: result.elapsedMs, healthy: result.healthy, reachable: result.reachable });
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+async function importConfigs(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    try {
+        const auth = await authenticate(request, env);
+        if (!auth) return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+
+        const body = await request.json() as { uris?: unknown };
+        const uris = Array.isArray(body.uris)
+            ? body.uris.filter((line): line is string => typeof line === 'string').map(line => line.trim()).filter(Boolean)
+            : [];
+
+        if (!uris.length) return respond(false, HttpStatus.BAD_REQUEST, 'Paste at least one config to import.');
+        if (uris.length > 500) return respond(false, HttpStatus.BAD_REQUEST, 'Too many configs (max 500).');
+
+        const { settings } = await getDataset(env);
+        const { customConfigs } = settings;
+        const existing = new Set<string>((customConfigs ?? []).map(value => value.trim()).filter(Boolean));
+
+        const added: string[] = [];
+        const skipped: Array<{ line: string; reason: string }> = [];
+        for (const line of uris) {
+            if (line.length > 8192) {
+                skipped.push({ line: line.slice(0, 80) + '…', reason: 'too long' });
+                continue;
+            }
+            const fingerprint = fingerprintConfig(line);
+            if (!fingerprint) {
+                skipped.push({ line: line.slice(0, 80), reason: 'unsupported or invalid config URL' });
+                continue;
+            }
+            if (existing.has(line) || existing.has(fingerprint)) {
+                skipped.push({ line: line.slice(0, 80), reason: 'duplicate' });
+                continue;
+            }
+            added.push(line);
+            existing.add(line);
+            existing.add(fingerprint);
+        }
+
+        if (!added.length) {
+            return respond(false, HttpStatus.BAD_REQUEST, 'No valid configs to import.', skipped);
+        }
+
+        // Merge with existing settings, never replace them.
+        const merged = [...(customConfigs ?? []), ...added];
+        await updateDataset(env, { customConfigs: merged } as PanelSettings);
+        return respond(true, HttpStatus.OK, `Imported ${added.length} config(s).`, { added: added.length, skipped });
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
+    }
+}
+
+// A stable fingerprint for dedupe: server + port + credential for the supported
+// protocol families. Returns null when the line is not a supported config URL.
+function fingerprintConfig(line: string): string | null {
+    try {
+        const url = new URL(line);
+        const supported = new Set(['vless:', 'trojan:', 'vmess:', 'ss:', 'shadowsocks:', 'socks:', 'socks5:', 'http:', 'https:']);
+        if (!supported.has(url.protocol)) return null;
+        if (url.protocol === 'vmess:') {
+            return `vmess:${url.host}`;
+        }
+        const host = url.hostname;
+        const port = url.port || '';
+        if (!host || !port) return null;
+        return `${url.protocol}${host}:${port}`;
+    } catch {
+        return null;
     }
 }

@@ -42,6 +42,31 @@ export async function getLatency(env: Env, address: string, port = 443): Promise
     return rec?.ms ?? null;
 }
 
+/**
+ * Read-only listing of every cached latency record for the endpoint health
+ * viewer. Best-effort: returns an empty list on any KV failure.
+ */
+export async function getLatencyRecords(env: Env): Promise<Array<{ address: string; port: number; ms: number; measuredAt: number }>> {
+    try {
+        const listed = await env.kv.list({ prefix: LATENCY_PREFIX });
+        const out: Array<{ address: string; port: number; ms: number; measuredAt: number }> = [];
+        for (const key of listed.keys) {
+            const rec = await env.kv.get(key.name, { type: 'json' }) as LatencyEntry | null;
+            if (!rec || typeof rec.ms !== 'number' || typeof rec.measuredAt !== 'number') continue;
+            const rest = key.name.slice(LATENCY_PREFIX.length);
+            // Keys are either "host" (port 443) or "host:port" (non-default).
+            const colon = rest.lastIndexOf(':');
+            const looksLikePort = colon !== -1 && /^\d+$/.test(rest.slice(colon + 1));
+            const address = looksLikePort ? rest.slice(0, colon) : rest;
+            const port = looksLikePort ? Number(rest.slice(colon + 1)) : 443;
+            out.push({ address, port, ms: rec.ms, measuredAt: rec.measuredAt });
+        }
+        return out.sort((a, b) => a.ms - b.ms).slice(0, 500);
+    } catch {
+        return [];
+    }
+}
+
 export async function setLatency(env: Env, address: string, ms: number, port = 443): Promise<void> {
     try {
         await env.kv

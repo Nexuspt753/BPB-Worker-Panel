@@ -10,6 +10,11 @@ import { SharedSettings } from '#types/settings';
 import { sweepLatency, type LatencyTarget } from '@cores/latency';
 import { cleanIpHost } from '@cores/naming';
 import { parseHostPort, resolveDNS } from '@cores/utils';
+import { isRateLimited } from '@cores/rate-limit';
+import { bumpUsage } from '@cores/usage';
+import { logAccess } from '@cores/accesslog';
+import { checkChainHealth } from '@cores/chain-health';
+import { sendTelegramMessage } from '@api/telegram';
 
 export async function handleSubscriptions(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await setSettings(env);
@@ -18,6 +23,12 @@ export async function handleSubscriptions(request: Request, env: Env, ctx: Execu
 
     // Never let the optional latency sweep break a subscription fetch.
     await maybeSweepLatency(env, ctx, path).catch(e => console.error(e));
+
+    // Opt-in diagnostics and protections. All of these are fail-open: a KV
+    // error degrades the feature, never the subscription response.
+    const block = await maybeEnforceProtections(env, request, path);
+    if (block) return block;
+    scheduleDiagnostics(env, ctx, path, request);
 
     switch (path) {
         case 'normal':
@@ -203,6 +214,68 @@ async function maybeSweepLatency(env: Env, ctx: ExecutionContext, path: string):
         }
         await sweepLatency(env, targets);
     })().catch((error) => console.error('[latency-sweep]', error)));
+}
+
+const CONFIG_PATHS = new Set(['normal', 'fragment', 'raw', 'warp', 'warp-pro']);
+
+/**
+ * Opt-in subscription protections: per-subscription rate limiting and config
+ * expiry. Returns a Response to short-circuit the fetch, or null to proceed.
+ * Fail-open: any KV error returns null so a quota guard never takes the panel
+ * down. `share-settings` and unknown paths are never blocked.
+ */
+async function maybeEnforceProtections(env: Env, request: Request, path: string): Promise<Response | null> {
+    if (!CONFIG_PATHS.has(path)) return null;
+    const { rateLimitEnabled, rateLimitPerHour, rateLimitPerDay, subscriptionExpiry } = getSettings();
+
+    try {
+        const limited = await isRateLimited(env, new URL(request.url).pathname, {
+            enabled: rateLimitEnabled === true,
+            perHour: rateLimitPerHour,
+            perDay: rateLimitPerDay
+        });
+        if (limited) {
+            return new Response('Too many requests. This subscription is temporarily rate limited.', {
+                status: 429,
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+        }
+
+        const expiry = Number(subscriptionExpiry) || 0;
+        if (expiry > 0 && Date.now() >= expiry) {
+            return new Response('This subscription has expired.', {
+                status: 403,
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+        }
+    } catch {
+        // Fail-open.
+    }
+
+    return null;
+}
+
+/**
+ * Fire-and-forget diagnostics that must never delay or break the response:
+ * per-config usage counts, the subscription access log, and the chain-proxy
+ * health monitor. Each runs in waitUntil with its own catch.
+ */
+function scheduleDiagnostics(env: Env, ctx: ExecutionContext, path: string, request: Request): void {
+    if (!env?.kv) return;
+    const { usageTracking, accessLogging, chainHealthAlerts, chainProxy } = getSettings();
+
+    if (usageTracking === true) {
+        ctx.waitUntil(bumpUsage(env, `${path}/${getGlobals().client || 'unknown'}`, getGlobals().client || '').catch(() => { }));
+    }
+
+    if (accessLogging === true) {
+        const ip = request.headers.get('cf-connecting-ip') ?? '';
+        ctx.waitUntil(logAccess(env, ip, path, getGlobals().client || '').catch(() => { }));
+    }
+
+    if (chainHealthAlerts === true && (chainProxy ?? '').trim()) {
+        ctx.waitUntil(checkChainHealth(env, chainProxy, message => sendTelegramMessage(env, message)).catch(() => { }));
+    }
 }
 
 async function shareSettings() {

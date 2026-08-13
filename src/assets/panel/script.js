@@ -325,6 +325,7 @@ function initNameTemplateTools() {
 
 initTemplateAutocomplete();
 initNameTemplateTools();
+initI18n();
 getUsage();
 initPanel();
 fetchIPInfo();
@@ -452,6 +453,12 @@ function renderPanel(proxySettings, tgSettings, subscriptions, clients, clientLi
     checkboxElements.forEach(elm => elm.checked = proxySettings[elm.id]);
     inputElements.forEach(elm => {
         const value = proxySettings[elm.id];
+        if (elm.id === 'subscriptionExpiry') {
+            // KV stores epoch ms; datetime-local needs a YYYY-MM-DDTHH:MM string.
+            const expiry = Number(value) || 0;
+            elm.value = expiry > 0 ? new Date(expiry).toISOString().slice(0, 16) : '';
+            return;
+        }
         elm.value = elm.id === 'nameMaxLength' && (value === 0 || value === '0') ? '0' : (value ?? '');
     });
     textareaElements.forEach(elm => {
@@ -492,6 +499,7 @@ function renderPanel(proxySettings, tgSettings, subscriptions, clients, clientLi
     }
     handleFragmentMode();
     updateNameTemplatePreview();
+    loadDiagnostics();
 
     if (tgSettings) {
         const tgForm = document.getElementById('telegramForm');
@@ -1303,6 +1311,14 @@ function validateSettings() {
         }
     });
 
+    // datetime-local → epoch ms for the backend.
+    if (typeof form.subscriptionExpiry === 'string' && form.subscriptionExpiry) {
+        const parsed = new Date(form.subscriptionExpiry).getTime();
+        form.subscriptionExpiry = Number.isFinite(parsed) ? parsed : 0;
+    } else {
+        form.subscriptionExpiry = 0;
+    }
+
     numInputElements.forEach(elm => {
         form[elm.id] = Number(form[elm.id].trim());
     });
@@ -1855,4 +1871,436 @@ function renderClients(clients) {
 
         document.getElementById('supported-clients').appendChild(row);
     });
+}
+
+// ---------------------------------------------------------------- Diagnostics
+// Each loader is self-contained and best-effort: a failed fetch or missing
+// section simply leaves the list empty or shows a short notice — never an error
+// that interrupts the panel.
+
+function diagnosticsFetch(path, options) {
+    return fetch(path, { credentials: 'include', ...options })
+        .then(res => res.json())
+        .then(({ success, status, message, body }) => {
+            if (!success) throw new Error(`status ${status} - ${message}`);
+            return body;
+        });
+}
+
+function setDiagnosticsList(id, rows) {
+    const list = document.getElementById(id);
+    if (!list) return;
+    list.replaceChildren();
+    if (!rows || !rows.length) {
+        list.textContent = 'No data yet.';
+        return;
+    }
+    rows.forEach(row => {
+        const item = elm('div', { className: 'diagnostics-row', textContent: row });
+        list.appendChild(item);
+    });
+}
+
+async function batchImportConfigs() {
+    const textarea = document.getElementById('batchImportTextarea');
+    const resultEl = document.getElementById('batchImportResult');
+    const btn = document.getElementById('batchImportButton');
+    const text = textarea?.value?.trim();
+    if (!text) {
+        showChainProxyTestResult(resultEl, 'error', 'Paste at least one config to import.');
+        return;
+    }
+
+    // Split on newlines, and also handle a full base64 subscription body.
+    let lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length === 1) {
+        try {
+            const decoded = atob(lines[0]);
+            if (decoded && decoded.includes('://')) {
+                lines = decoded.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+            }
+        } catch { /* not base64 — keep as a single line */ }
+    }
+
+    const icons = startWaiting(btn, '', 'refresh');
+    showChainProxyTestResult(resultEl, '', `Importing ${lines.length} config(s)…`);
+    try {
+        const response = await fetch('./panel/import-configs', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uris: lines })
+        });
+        const payload = await response.json();
+        if (!payload.success) {
+            const skipped = Array.isArray(payload.body) ? payload.body : [];
+            const details = skipped.map(s => `${s.line} — ${s.reason}`).join('\n');
+            showChainProxyTestResult(resultEl, 'error', `${payload.message || 'Import failed.'}${details ? '\n' + details : ''}`);
+            return;
+        }
+        const { added, skipped } = payload.body || {};
+        const skipLines = (skipped || []).map(s => `${s.line} — ${s.reason}`).join('\n');
+        showChainProxyTestResult(resultEl, 'ok', `Imported ${added} config(s).${skipLines ? '\nSkipped:\n' + skipLines : ''}`);
+        textarea.value = '';
+        notify('success', 'Batch import', [`Imported ${added} config(s). Please review Single Configs and Apply.`]);
+    } catch (error) {
+        showChainProxyTestResult(resultEl, 'error', `Could not import configs: ${error.message}`);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function runChainHealthCheck() {
+    const btn = document.getElementById('runChainHealth');
+    const resultEl = document.getElementById('chainHealthResult');
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const body = await diagnosticsFetch('./panel/run-chain-health', { method: 'POST' });
+        const status = body?.status;
+        const kind = status === 'ok' ? 'ok' : status === 'warn' ? 'warn' : status === 'fail' ? 'error' : '';
+        showChainProxyTestResult(resultEl, kind, body?.summary || 'No chain proxy configured.');
+    } catch (error) {
+        showChainProxyTestResult(resultEl, 'error', `Could not check chain proxy: ${error.message}`);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function loadChainHealth() {
+    try {
+        const body = await diagnosticsFetch('./panel/chain-health');
+        const resultEl = document.getElementById('chainHealthResult');
+        if (!body || body.status === 'unknown') {
+            resultEl.textContent = 'Not checked yet.';
+            return;
+        }
+        const kind = body.status === 'ok' ? 'ok' : body.status === 'warn' ? 'warn' : 'error';
+        showChainProxyTestResult(resultEl, kind, body.summary || '');
+    } catch { /* optional */ }
+}
+
+async function loadBackups() {
+    const btn = document.getElementById('refreshBackups');
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const rows = await diagnosticsFetch('./panel/backups');
+        const list = document.getElementById('backupList');
+        list.replaceChildren();
+        if (!rows || !rows.length) {
+            list.textContent = 'No backups yet. A backup is saved before every Apply.';
+            return;
+        }
+        rows.forEach(backup => {
+            const date = new Date(backup.ts).toLocaleString();
+            const label = elm('span', { textContent: `${date}` });
+            const restoreBtn = elm('button', {
+                className: 'button',
+                textContent: 'Restore',
+                onclick: () => restoreBackup(backup.ts)
+            });
+            const row = elm('div', { className: 'diagnostics-row' }, [label, restoreBtn]);
+            list.appendChild(row);
+        });
+    } catch (error) {
+        setDiagnosticsList('backupList', [`Failed to load backups: ${error.message}`]);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function restoreBackup(ts) {
+    const confirm = await notify('confirm', 'Restore backup', ['Restore settings from this backup? A backup of the current settings will be saved first.', 'Continue?']);
+    if (!confirm) return;
+    try {
+        const res = await fetch('./panel/restore-backup', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ts })
+        });
+        const { success, status, message, body } = await res.json();
+        if (!success) {
+            notify('error', 'Restore backup', [message || `status ${status}`]);
+            return;
+        }
+        notify('success', 'Restore backup', [message || 'Settings restored.']);
+        setTimeout(() => window.location.reload(), 800);
+    } catch (error) {
+        notify('error', 'Restore backup', [`Failed to restore: ${error.message}`]);
+    }
+}
+
+async function loadUsageStats() {
+    const btn = document.getElementById('refreshUsageStats');
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const rows = await diagnosticsFetch('./panel/usage-stats');
+        const list = document.getElementById('usageStatsList');
+        list.replaceChildren();
+        if (!rows || !rows.length) {
+            list.textContent = 'No usage recorded yet. Enable Usage statistics and fetch a subscription.';
+            return;
+        }
+        rows.forEach(row => {
+            const text = `${row.name} — today ${row.today}, 7 days ${row.week}, last ${new Date(row.lastAt).toLocaleString()}`;
+            list.appendChild(elm('div', { className: 'diagnostics-row', textContent: text }));
+        });
+    } catch (error) {
+        setDiagnosticsList('usageStatsList', [`Failed to load usage: ${error.message}`]);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function loadAccessLog() {
+    const btn = document.getElementById('refreshAccessLog');
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const rows = await diagnosticsFetch('./panel/access-log');
+        const list = document.getElementById('accessLogList');
+        list.replaceChildren();
+        if (!rows || !rows.length) {
+            list.textContent = 'No fetches recorded. Enable the Subscription access log setting.';
+            return;
+        }
+        rows.forEach(row => {
+            const text = `${new Date(row.ts).toLocaleString()} — ${row.type}/${row.client} — ${row.ipHash.slice(0, 12)}…`;
+            list.appendChild(elm('div', { className: 'diagnostics-row', textContent: text }));
+        });
+    } catch (error) {
+        setDiagnosticsList('accessLogList', [`Failed to load access log: ${error.message}`]);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function loadEndpoints() {
+    const btn = document.getElementById('refreshEndpoints');
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const rows = await diagnosticsFetch('./panel/endpoints');
+        const list = document.getElementById('endpointList');
+        list.replaceChildren();
+        if (!rows || !rows.length) {
+            list.textContent = 'No endpoint latency cached. Enable Auto-test endpoint latency and fetch a subscription.';
+            return;
+        }
+        rows.forEach(row => {
+            const text = `${row.address}:${row.port} — ${row.ms} ms — ${new Date(row.measuredAt).toLocaleString()}`;
+            list.appendChild(elm('div', { className: 'diagnostics-row', textContent: text }));
+        });
+    } catch (error) {
+        setDiagnosticsList('endpointList', [`Failed to load endpoints: ${error.message}`]);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function loadErrorLog() {
+    const btn = document.getElementById('refreshErrors');
+    const icons = startWaiting(btn, '', 'refresh');
+    try {
+        const rows = await diagnosticsFetch('./panel/error-log');
+        const list = document.getElementById('errorLogList');
+        list.replaceChildren();
+        if (!rows || !rows.length) {
+            list.textContent = 'No errors recorded.';
+            return;
+        }
+        rows.forEach(row => {
+            const text = `${new Date(row.ts).toLocaleString()} — ${row.source}: ${row.message}`;
+            list.appendChild(elm('div', { className: 'diagnostics-row', textContent: text }));
+        });
+    } catch (error) {
+        setDiagnosticsList('errorLogList', [`Failed to load error log: ${error.message}`]);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function clearErrorLog() {
+    const btn = document.getElementById('clearErrors');
+    const icons = startWaiting(btn, '', 'delete');
+    try {
+        await diagnosticsFetch('./panel/clear-error-log', { method: 'POST' });
+        await loadErrorLog();
+        notify('success', 'Error log', ['Error log cleared.']);
+    } catch (error) {
+        notify('error', 'Error log', [`Failed to clear: ${error.message}`]);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+async function loadDiagnostics() {
+    loadChainHealth();
+    loadBackups();
+    loadUsageStats();
+    loadAccessLog();
+    loadEndpoints();
+    loadErrorLog();
+}
+
+// ------------------------------------------------------------------ i18n
+// Minimal, additive internationalization. The panel's English text is the
+// source of truth; a Farsi dictionary translates the most visible static
+// strings. No `dir` flip is applied (the stylesheet still uses hardcoded
+// left/right in places), so layout never changes — only text. Untranslated
+// keys fall back to English. The preference lives in localStorage.
+
+const I18N = {
+    fa: {
+        'Admin': 'مدیریت',
+        'Last 24h Requests': 'درخواست‌های ۲۴ ساعت گذشته',
+        'Settings': 'تنظیمات',
+        'Telegram Bot': 'بات تلگرام',
+        'Telegram Bot Token': 'توکن بات تلگرام',
+        'Telegram User ID': 'شناسه کاربری تلگرام',
+        'Proxy Settings': 'تنظیمات پروکسی',
+        'Common': 'تنظیمات مشترک',
+        'Local DNS': 'DNS محلی',
+        'Anti Sanction DNS': 'DNS ضد تحریم',
+        'Fake DNS': 'DNS جعلی',
+        'IPv6': 'IPv6',
+        'Allow connections from LAN': 'اجازه اتصال از LAN',
+        'Log Level': 'سطح لاگ',
+        'Custom Domain': 'دامنه سفارشی',
+        'Underlying DoH': 'DoH زیرین',
+        'Fallback Domain': 'دامنه جایگزین',
+        'VLESS - Trojan': 'VLESS - Trojan',
+        'Protocols': 'پروتکل‌ها',
+        'Remote DNS': 'DNS راه دور',
+        'Upstream TCP Proxy': 'پروکسی TCP بالادست',
+        'Chain Proxy': 'پروکسی زنجیره‌ای',
+        'Fingerprint': 'اثر انگشت',
+        'Best Ping Interval': 'فاصله بهترین پینگ',
+        'TCP Fast Open': 'TCP Fast Open',
+        'Mode': 'حالت',
+        'Addresses': 'آدرس‌ها',
+        'Host': 'میزبان',
+        'SNI': 'SNI',
+        'Xray Fragment': 'Fragment ایکس‌ری',
+        'Packets': 'بسته‌ها',
+        'Length': 'طول',
+        'Delay': 'تاخیر',
+        'Max Split': 'حداکثر تقسیم',
+        'External Raw Configs': 'کانفیگ‌های خام خارجی',
+        'Subscriptions': 'اشتراک‌ها',
+        'Single Configs': 'کانفیگ‌های تکی',
+        'Config Names': 'نام کانفیگ‌ها',
+        'Config Name Template': 'قالب نام کانفیگ',
+        'Template preset': 'قالب از پیش تعیین‌شده',
+        'Name formatting': 'قالب‌بندی نام',
+        'Maximum name length': 'حداکثر طول نام',
+        'Geo privacy': 'حریم خصوصی جغرافیایی',
+        'Freeze geo-derived names': 'ثابت کردن نام‌های جغرافیایی',
+        'Address groups': 'گروه‌های آدرس',
+        'Auto-test endpoint latency': 'تست خودکار تاخیر',
+        'Latency interval (minutes)': 'فاصله تاخیر (دقیقه)',
+        'Warp General': 'Warp عمومی',
+        'Warp PRO': 'Warp حرفه‌ای',
+        'Count': 'تعداد',
+        'Size': 'اندازه',
+        'Routing Rules': 'قوانین مسیریابی',
+        'Usage statistics': 'آمار مصرف',
+        'Chain proxy health alerts': 'هشدار سلامت پروکسی زنجیره‌ای',
+        'Subscription access log': 'گزارش دسترسی اشتراک',
+        'Rate limit subscriptions': 'محدودیت نرخ اشتراک',
+        'Rate limit per hour': 'محدودیت در ساعت',
+        'Rate limit per day': 'محدودیت در روز',
+        'Subscription expiry': 'انقضای اشتراک',
+        'Diagnostics': 'عیب‌یابی',
+        'Chain proxy health': 'سلامت پروکسی زنجیره‌ای',
+        'Check now': 'بررسی',
+        'Backups': 'پشتیبان‌گیری',
+        'Refresh': 'به‌روزرسانی',
+        'Usage statistics': 'آمار مصرف',
+        'Subscription access log': 'گزارش دسترسی اشتراک',
+        'Endpoint health': 'سلامت نقطه پایانی',
+        'Worker error log': 'گزارش خطای Worker',
+        'Clear': 'پاک کردن',
+        'Supported Clients': 'کلاینت‌های پشتیبانی‌شده',
+        'Client': 'کلاینت',
+        'Minimum Requirement': 'حداقل نیاز',
+        'Get Latest': 'آخرین نسخه',
+        'My IP': 'IP من',
+        'Information': 'اطلاعات',
+        'Cloudflare targets': 'اهداف Cloudflare',
+        'Other targets': 'سایر اهداف',
+        'Country': 'کشور',
+        'City': 'شهر',
+        'ISP': 'ارائه‌دهنده اینترنت',
+        'Import - Export settings': 'ورود و خروج تنظیمات',
+        'Usage': 'مصرف',
+        'Total': 'مجموع',
+        'Log out': 'خروج'
+    }
+};
+
+const i18nOriginal = new WeakMap();
+let currentLang = 'en';
+
+function applyI18n(lang) {
+    currentLang = lang === 'fa' ? 'fa' : 'en';
+    const dict = I18N[currentLang] || {};
+
+    const translateTextNodes = (root) => {
+        if (!root) return;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const text = node.nodeValue.trim();
+            if (text) nodes.push(node);
+        }
+        nodes.forEach(node => {
+            const text = node.nodeValue.trim();
+            const translated = dict[text];
+            if (!translated) return;
+            if (!i18nOriginal.has(node)) {
+                i18nOriginal.set(node, node.nodeValue);
+            }
+            node.nodeValue = node.nodeValue.replace(text, translated);
+        });
+    };
+
+    const restoreTextNodes = (root) => {
+        if (!root) return;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const original = i18nOriginal.get(node);
+            if (original !== undefined) {
+                node.nodeValue = original;
+                i18nOriginal.delete(node);
+            }
+        }
+    };
+
+    const root = document.body;
+    if (currentLang === 'en') {
+        restoreTextNodes(root);
+    } else {
+        translateTextNodes(root);
+    }
+}
+
+function initI18n() {
+    let lang = 'en';
+    try {
+        lang = localStorage.getItem('panelLang') || 'en';
+        if (lang !== 'fa') lang = 'en';
+    } catch { /* localStorage unavailable */ }
+
+    const select = document.getElementById('panelLang');
+    if (select) {
+        select.value = lang;
+        select.addEventListener('change', () => {
+            const next = select.value === 'fa' ? 'fa' : 'en';
+            try { localStorage.setItem('panelLang', next); } catch { /* ignore */ }
+            applyI18n(next);
+        });
+    }
+
+    applyI18n(lang);
 }

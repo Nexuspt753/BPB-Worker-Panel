@@ -8,9 +8,25 @@ import { handleSubscriptions } from '@handlers/subscription';
 import { handleTelegram } from '@handlers/telegram';
 import { fallback } from '@handlers/utils';
 import { handleWebsocket } from '@handlers/websocket';
-import { init, getGlobals } from '@settings';
+import { init, getGlobals, getSettings, setSettings } from '@settings';
+import { checkChainHealth } from '@cores/chain-health';
+import { sendTelegramMessage } from '@api/telegram';
 
 export default {
+	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		// Cron-driven chain-proxy health check (no-op without a configured cron
+		// trigger). Defensive: never throws from a scheduled handler.
+		try {
+			await setSettings(env);
+			const { chainHealthAlerts, chainProxy } = getSettings();
+			if (chainHealthAlerts === true && (chainProxy ?? '').trim()) {
+				await checkChainHealth(env, chainProxy, message => sendTelegramMessage(env, message));
+			}
+		} catch (error) {
+			console.error('[scheduled]', error);
+		}
+	},
+
 	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		try {
 			init(request, env);
@@ -44,7 +60,7 @@ export default {
 					return fallback(request);
 			}
 		} catch (error) {
-			return renderError(error);
+			return renderError(error, env);
 		}
 	}
 }

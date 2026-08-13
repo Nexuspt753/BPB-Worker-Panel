@@ -323,6 +323,29 @@ h4 {
     border-color: rgb(232 20 3 / 40%);
 }
 
+.diagnostics-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.diagnostics-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-border-accent);
+    border-radius: var(--radius-ui);
+    background: color-mix(in srgb, var(--color-bg-input), transparent 15%);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
 .name-preview-card {
     width: 100%;
     padding: var(--space-lg);

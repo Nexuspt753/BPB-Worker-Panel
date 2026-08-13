@@ -38,7 +38,8 @@ const validators = [
     validateNameTemplate,
     validateNameOptions,
     validateNameAddressGroups,
-    validateLatencyInterval
+    validateLatencyInterval,
+    validateRateLimits
 ];
 
 export function validateSettings(form: PanelSettings | null): ValidationError[] | null {
@@ -356,6 +357,22 @@ function validateLatencyInterval(form: PanelSettings, errors: ValidationError[])
         errors.push({
             field: 'Latency Auto Test Interval',
             message: ['It should be a whole number of minutes between 10 and 1440.']
+        });
+    }
+}
+
+function validateRateLimits(form: PanelSettings, errors: ValidationError[]) {
+    if (form.rateLimitEnabled !== true) return;
+    const perHour = Number(form.rateLimitPerHour);
+    const perDay = Number(form.rateLimitPerDay);
+
+    const validHour = Number.isInteger(perHour) && perHour >= 0 && perHour <= 1000000;
+    const validDay = Number.isInteger(perDay) && perDay >= 0 && perDay <= 1000000;
+
+    if (!validHour || !validDay) {
+        errors.push({
+            field: 'Rate Limit',
+            message: ['Per-hour and per-day limits must be whole numbers between 0 and 1,000,000 (0 disables that limit).']
         });
     }
 }
