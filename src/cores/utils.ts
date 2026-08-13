@@ -739,6 +739,11 @@ export function toRange(min?: number, max?: number) {
     return `${min}-${max}`;
 }
 
+/**
+ * Appends `values` to a new array when `condition` is true. When `condition` is
+ * false, returns `arr` by identity (not a copy) — callers must not mutate the
+ * result assuming it is a fresh array.
+ */
 export function concatIf<T>(arr: T[], condition: boolean, values: T | T[]): T[] {
     if (!condition) return arr;
     return Array.isArray(values) ? [...arr, ...values] : [...arr, values];

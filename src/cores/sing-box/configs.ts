@@ -115,7 +115,9 @@ export async function getSbCustomConfig(isFragment: boolean, env: Env): Promise<
     Object.keys(tagGroup).forEach(name => nameRegistry.names.add(name));
 
     for (const domain of domains) {
-        const totalPorts = ports.filter(port => !isFragment && domain.endsWith('workers.dev') || isHttps(port));
+        // Direct (non-fragment) workers.dev domains may use any configured port;
+        // everything else is limited to the HTTPS port set.
+        const totalPorts = ports.filter(port => (!isFragment && domain.endsWith('workers.dev')) || isHttps(port));
         const hosts = await getConfigAddresses(domain, isFragment);
         if (upstreamServer && upstreamPort) {
             totalPorts.unshift(upstreamPort);

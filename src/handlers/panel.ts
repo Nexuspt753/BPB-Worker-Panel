@@ -267,10 +267,10 @@ async function updatePanelSettings(request: Request, env: Env): Promise<Response
         const errors = validateSettings(newSettings);
         if (errors) return respond(false, HttpStatus.BAD_REQUEST, 'Validation Error', errors);
 
-        await Promise.all([
-            updateDataset(env, newSettings),
-            updateMainSettings(newSettings)
-        ]);
+        // Persist KV only after a successful deploy so a failed redeploy cannot
+        // leave KV and the baked-in env vars disagreeing.
+        await updateMainSettings(newSettings);
+        await updateDataset(env, newSettings);
 
         const { securePath } = getGlobals();
         if (newSettings.securePath !== securePath) {

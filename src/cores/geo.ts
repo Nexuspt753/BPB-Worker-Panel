@@ -21,7 +21,16 @@ const CACHE_TTL = 60 * 60 * 24 * 30; // 30 days
 const FAIL_TTL = 60 * 10; // 10 minutes
 const TIMEOUT_MS = 5000;
 const MAX_REQUESTS_PER_MINUTE = 40;
+const GEO_MEMORY_MAX = 1000;
 const geoMemory = new Map<string, GeoInfo>();
+
+function rememberGeo(ip: string, geo: GeoInfo): void {
+    geoMemory.set(ip, geo);
+    if (geoMemory.size > GEO_MEMORY_MAX) {
+        const oldest = geoMemory.keys().next().value;
+        if (oldest !== undefined) geoMemory.delete(oldest);
+    }
+}
 const requestTimes: number[] = [];
 
 interface FailMarker { failed: true }
@@ -43,7 +52,7 @@ export async function resolveGeo(
             if ('failed' in cached && cached.failed === true) return stale ?? null;
             if ('ip' in cached && typeof cached.ip === 'string') {
                 stale = cached;
-                geoMemory.set(ip, cached);
+                rememberGeo(ip, cached);
                 // A KV hit is authoritative and avoids a provider request.
                 return cached;
             }
@@ -100,7 +109,7 @@ export async function resolveGeo(
             type: data.hosting || data.proxy ? 'hosting' : data.mobile ? 'mobile' : 'residential',
             cachedAt: Date.now(),
         };
-        geoMemory.set(ip, geo);
+        rememberGeo(ip, geo);
 
         try {
             await env.kv.put(key, JSON.stringify(geo), { expirationTtl: CACHE_TTL }).catch(() => { });

@@ -81,6 +81,10 @@ export function getSharedSettings(): SharedSettings {
         remoteSettings,
         customDomain,
         panelVersion,
+        chainProxy,
+        chainProxyParams,
+        upstreamProxy,
+        upstreamParams,
         ...proxySettings
     } = kvSettings;
 

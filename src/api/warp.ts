@@ -4,7 +4,16 @@ interface WarpKeys {
     privateKey: string;
 }
 
-export async function fetchWarpAccounts(env: Env): Promise<WarpAccount[]> {
+let warpProvision: Promise<WarpAccount[]> | undefined;
+
+export function fetchWarpAccounts(env: Env): Promise<WarpAccount[]> {
+    if (!warpProvision) {
+        warpProvision = doFetchWarpAccounts(env).finally(() => { warpProvision = undefined; });
+    }
+    return warpProvision;
+}
+
+async function doFetchWarpAccounts(env: Env): Promise<WarpAccount[]> {
     const warpAccounts: WarpAccount[] = [];
 
     try {

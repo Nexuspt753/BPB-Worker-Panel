@@ -415,7 +415,7 @@ async function handleCallback(cq: TgCallbackQuery, token: string, chatId: number
     }
 }
 
-export async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
+export async function handleTelegramWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const tgBot: TelegramBot | null = await env.kv.get('telegramBot', { type: 'json' });
     if (!tgBot) return new Response(null, { status: 200 });
 
@@ -446,7 +446,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
             await handleCallback(cq, botToken, chatId);
         }
 
-        checkCfUsageWarning(botToken, chatId);
+        ctx.waitUntil(checkCfUsageWarning(botToken, chatId).catch(error => console.error('[telegram]', error)));
         return new Response(null, { status: 200 });
     }
 
@@ -496,7 +496,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
                 break;
         }
 
-        checkCfUsageWarning(botToken, chatId);
+        ctx.waitUntil(checkCfUsageWarning(botToken, chatId).catch(error => console.error('[telegram]', error)));
         return new Response(null, { status: 200 });
     }
 

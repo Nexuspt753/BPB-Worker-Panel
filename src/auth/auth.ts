@@ -2,6 +2,26 @@ import { HttpStatus, respond } from '@common';
 import { SignJWT, jwtVerify } from 'jose';
 import { getGlobals } from '@settings';
 
+async function safeCompare(a: unknown, b: unknown): Promise<boolean> {
+    const encode = (value: unknown): ArrayBuffer => {
+        const bytes = new TextEncoder().encode(typeof value === 'string' ? value : '');
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
+        return buffer;
+    };
+    // Compare SHA-256 digests so the check runs over equal-length inputs and
+    // never short-circuits on a length mismatch (timing-safe password compare).
+    const [left, right] = await Promise.all([
+        crypto.subtle.digest('SHA-256', encode(a)),
+        crypto.subtle.digest('SHA-256', encode(b))
+    ]);
+    const l = new Uint8Array(left);
+    const r = new Uint8Array(right);
+    let diff = 0;
+    for (let i = 0; i < l.length; i++) diff |= l[i] ^ r[i];
+    return diff === 0;
+}
+
 export function logout(): Response {
     return respond(true, HttpStatus.OK, 'Successfully logged out!', null, {
         'Set-Cookie': 'jwtToken=; Path=/; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
@@ -18,7 +38,7 @@ export async function generateJWTToken(request: Request, env: Env): Promise<Resp
     const savedPass = await env.kv.get('pwd');
     const { accEmail } = getGlobals();
     const username = data.username?.toLowerCase();
-    if (username !== accEmail || data.password !== savedPass) {
+    if (username !== accEmail || !(await safeCompare(data.password, savedPass))) {
         return respond(false, HttpStatus.UNAUTHORIZED, 'Wrong Credentials.');
     }
 
@@ -66,7 +86,7 @@ export async function authenticate(request: Request, env: Env): Promise<boolean>
         await jwtVerify(token, secret);
         return true;
     } catch (error) {
-        console.error('[auth]', error);
+        console.error('[auth] verification failed');
         return false;
     }
 }
@@ -89,7 +109,7 @@ export async function resetPassword(request: Request, env: Env): Promise<Respons
         return respond(false, HttpStatus.BAD_REQUEST, 'Wrong username.');
     }
 
-    if (data.password === oldPwd) {
+    if (await safeCompare(data.password, oldPwd)) {
         return respond(false, HttpStatus.BAD_REQUEST, 'Please enter a new Password.');
     }
 

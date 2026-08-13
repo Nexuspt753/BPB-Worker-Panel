@@ -63,10 +63,12 @@ export async function setCustomDomain(customDomain: string) {
     const { deployType } = getGlobals();
 
     try {
-        const tld = customDomain.split('.').slice(-2).join('.');
-        const dnsZones = await listZones();
-        const zone = dnsZones?.find((z: any) => z.name === tld);
-        if (!zone) throw new Error(`Specified domain ${tld} is not registered on your Cloudflare account.`);
+        const dnsZones = (await listZones()) as Array<{ name: string; id: string }> | undefined;
+        const zone = dnsZones
+            ?.slice()
+            .sort((a, b) => b.name.length - a.name.length)
+            .find(z => customDomain === z.name || customDomain.endsWith(`.${z.name}`));
+        if (!zone) throw new Error(`Specified domain ${customDomain} is not registered on your Cloudflare account.`);
         const zoneID = zone.id;
         const customDomains = deployType === 'workers'
             ? await getWorkerDomains()

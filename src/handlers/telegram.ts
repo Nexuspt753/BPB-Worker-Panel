@@ -2,7 +2,7 @@ import { handleTelegramWebhook, removeTelegramBot, setupTelegramWebhook } from '
 import { getGlobals, setSettings } from '@settings';
 import { fallback } from './utils';
 
-export async function handleTelegram(request: Request, env: Env): Promise<Response> {
+export async function handleTelegram(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     await setSettings(env);
     const { pathname } = getGlobals();
     const path = pathname.split('/')[3];
@@ -15,7 +15,7 @@ export async function handleTelegram(request: Request, env: Env): Promise<Respon
             return removeTelegramBot(request, env);
 
         case 'webhook':
-            return handleTelegramWebhook(request, env);
+            return handleTelegramWebhook(request, env, ctx);
 
         default:
             return fallback(request);

@@ -29,7 +29,7 @@ export default {
 					return handleSubscriptions(request, env, ctx);
 
 				case `/${securePath}/telegram`:
-					return handleTelegram(request, env);
+					return handleTelegram(request, env, ctx);
 
 				case `/${securePath}/dns-query`:
 					return handleDoH(request);

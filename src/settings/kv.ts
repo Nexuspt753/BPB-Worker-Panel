@@ -51,7 +51,7 @@ export async function getDataset(env: Env): Promise<{
         }
 
         if (VERSION !== settings.panelVersion) {
-            settings = await updateDataset(env);
+            settings = { ...settings, panelVersion: VERSION }; await env.kv.put('proxySettings', JSON.stringify(settings));
         }
 
         let telegramBot: TelegramBot | null = await env.kv.get('telegramBot', { type: 'json' });

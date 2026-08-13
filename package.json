@@ -9,6 +9,7 @@
 		"lint": "eslint \"src/**/*.ts\"",
 		"typecheck": "tsc --noEmit",
 		"check": "npm run typecheck",
+		"test": "bun test",
 		"build": "node scripts/build.js",
 		"build-dev": "node scripts/build-dev.js"
 	},

@@ -126,6 +126,10 @@ export interface SharedSettings extends
         | 'remoteSettings'
         | 'customDomain'
         | 'panelVersion'
+        | 'chainProxy'
+        | 'chainProxyParams'
+        | 'upstreamProxy'
+        | 'upstreamParams'
     > { }
 
 export interface PanelSettings extends KvSettings, MainSettings { };

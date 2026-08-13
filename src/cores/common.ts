@@ -46,7 +46,7 @@ export async function getURLConfigs(env: Env) {
         }
 
         const path = generateWsPath(protocol);
-        config.hostname = addr;
+        config.hostname = addr.replace(/\[|\]/g, '');
         config.port = port.toString();
         config.searchParams.append('host', host);
         config.searchParams.append('type', 'ws');

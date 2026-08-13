@@ -1,4 +1,4 @@
-import { HttpStatus } from '@common';
+import { HttpStatus, respond } from '@common';
 import { getGlobals } from '@settings';
 import qrcode from 'qrcode-generator';
 import { fallback } from './utils';
@@ -116,8 +116,19 @@ async function createPNG(
 export async function generateQRCode(request: Request): Promise<Response> {
     const { searchParams, origin } = getGlobals();
     const data = searchParams.get('data') ?? '';
+    if (!data) {
+        return respond(false, HttpStatus.BAD_REQUEST, 'Missing QR code data.');
+    }
+    if (data.length > 2048) {
+        return respond(false, HttpStatus.BAD_REQUEST, 'QR code data is too long.');
+    }
 
-    const target = new URL(data);
+    let target: URL;
+    try {
+        target = new URL(data);
+    } catch {
+        return respond(false, HttpStatus.BAD_REQUEST, 'Invalid QR code data.');
+    }
     const proto = target.protocol;
 
     let url: URL = target;

@@ -345,7 +345,9 @@ export async function getXrCustomConfigs(isFragment: boolean, env: Env): Promise
         let totalHosts: string[] = [];
         const proxies: Outbound[] = [];
         const chains: Outbound[] = [];
-        const totalPorts = ports.filter(port => !isFragment && domain.endsWith('workers.dev') || isHttps(port));
+        // Direct (non-fragment) workers.dev domains may use any configured port;
+        // everything else is limited to the HTTPS port set.
+        const totalPorts = ports.filter(port => (!isFragment && domain.endsWith('workers.dev')) || isHttps(port));
         const hosts = await getConfigAddresses(domain, isFragment);
         
         if (upstreamServer && upstreamPort && !isFragment) {
