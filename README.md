@@ -5,6 +5,12 @@
 > **Fork of [BPB Panel](https://github.com/bia-pain-bache/BPB-Worker-Panel)** — modified in 2026 and maintained by [Nexuspt753](https://github.com/Nexuspt753) at [Nexuspt753/BPB-Worker-Panel](https://github.com/Nexuspt753/BPB-Worker-Panel). Distributed under the [GPL-3.0](LICENSE) license.
 
 <p align="center">
+  <a href="https://nexuspt753.github.io/BPB-Worker-Panel/">
+    <img src="https://img.shields.io/github/deployments/Nexuspt753/BPB-Worker-Panel/github-pages?label=docs&logo=github&color=2ea44f" alt="Docs">
+  </a>
+</p>
+
+<p align="center">
   <img src="docs/assets/images/panel-overview.jpg" alt="Panel overview">
 </p>
 <br>
