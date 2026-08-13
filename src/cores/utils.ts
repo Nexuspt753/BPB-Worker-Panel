@@ -565,11 +565,11 @@ export function isDomain(address: string): boolean {
     const domainRegex = new RegExp(`^(?:${label}\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$`, 'iu');
     if (domainRegex.test(normalized)) return true;
 
-    // URL uses the platform's IDN/Punycode implementation in both Workers and
-    // standard runtimes. Normalize Unicode hostnames through it, then apply the
-    // same label and TLD checks to the resulting ASCII hostname.
+    // Convert Unicode hostnames to ASCII/Punycode explicitly so IDN validation
+    // does not depend on URL.hostname punycode behavior. Prefer the standard
+    // URL.domainToASCII; fall back to URL parsing on runtimes that lack it.
     try {
-        const ascii = new URL(`http://${normalized}`).hostname.replace(/\\.+$/u, '').toLowerCase();
+        const ascii = ((URL as unknown as { domainToASCII?: (domain: string) => string }).domainToASCII?.(normalized) ?? new URL(`http://${normalized}`).hostname).replace(/\\.+$/u, '').toLowerCase();
         return domainRegex.test(ascii);
     } catch {
         return false;

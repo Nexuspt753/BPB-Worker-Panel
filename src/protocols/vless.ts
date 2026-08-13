@@ -18,7 +18,6 @@ export async function VlOverWSHandler(request: Request): Promise<Response> {
     let portWithRandomLog = '';
 
     const log = (info: string, event?: string) => {
-        if (!/(?:error|abort|closed)/iu.test(info)) return;
         console.error(`[vless:${address}:${portWithRandomLog}] ${info}`, event || '');
     };
 

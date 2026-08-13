@@ -11,7 +11,6 @@ export async function TrOverWSHandler(request: Request): Promise<Response> {
     let portWithRandomLog = '';
 
     const log = (info: string, event?: string) => {
-        if (!/(?:error|abort|closed)/iu.test(info)) return;
         console.error(`[trojan:${address}:${portWithRandomLog}] ${info}`, event || '');
     };
 
