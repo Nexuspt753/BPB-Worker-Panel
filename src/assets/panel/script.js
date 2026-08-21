@@ -780,10 +780,21 @@ function oneClickAdd(client, type, core, label) {
         a.click();
         a.remove();
 
-        notify('info', 'Add to ' + name, [
+        const lines = [
             name + ' should open and import the subscription.',
             'If another installed app opened instead, it can import the same link; otherwise paste the copied link into ' + name + '.'
-        ]);
+        ];
+
+        // v2rayNG-family apps register the subscription but do not fetch it
+        // until the user refreshes (upstream 2dust/v2rayNG#4141), so tell
+        // them where the configs will appear.
+        const strategy = resolveClientLink(client, currentOS);
+        const template = strategy?.schemes?.[currentOS] ?? strategy?.scheme ?? '';
+        if (template.startsWith('v2rayng://')) {
+            lines.push('Then open \u22EE \u2192 "Update subscription" in ' + name + ' to load the configs.');
+        }
+
+        notify('info', 'Add to ' + name, lines);
         return;
     }
 
@@ -1518,6 +1529,54 @@ async function testChainProxy(event) {
         renderChainProxyTestResult(resultEl, payload.body);
     } catch (error) {
         showChainProxyTestResult(resultEl, 'error', `Could not test the chain proxy: ${error.message}`);
+    } finally {
+        stopWaiting(icons);
+    }
+}
+
+// Probe every configured Clean IP through the worker (socket-level check on
+// port 443) and list which entries still relay to Cloudflare, so dead IPs are
+// obvious before they reach a subscription.
+async function testCleanIPs(event) {
+    event?.preventDefault?.();
+    const box = document.getElementById('clean-ip-health');
+    const btn = document.getElementById('cleanIPsTestButton');
+    if (!box || !btn) return;
+
+    const icons = startWaiting(btn, '', 'refresh');
+    box.hidden = false;
+    box.replaceChildren();
+
+    try {
+        const response = await fetch('./panel/clean-ip-health', { method: 'POST', credentials: 'include' });
+        const payload = await response.json();
+        if (!payload.success) throw new Error(payload.message || `Request failed (status ${payload.status}).`);
+
+        const rows = Array.isArray(payload.body) ? payload.body : [];
+        if (!rows.length) {
+            box.textContent = 'No Clean IPs configured.';
+            return;
+        }
+
+        const summary = document.createElement('div');
+        summary.className = 'ip-health-summary';
+        const dead = rows.filter(row => !row.ok).length;
+        summary.textContent = dead
+            ? `${rows.length - dead}/${rows.length} healthy - remove or replace the failed entries:`
+            : `All ${rows.length} Clean IPs are healthy.`;
+        if (!dead) summary.classList.add('all-ok');
+
+        box.replaceChildren(summary, ...rows.map(row => {
+            const line = document.createElement('div');
+            line.className = 'ip-health-row ' + (row.ok ? 'ok' : 'dead');
+            const label = row.name ? `${row.host} (${row.name})` : row.host;
+            line.textContent = row.ok
+                ? `\u2705 ${label} \u2014 ${row.ms} ms`
+                : `\u274C ${label} \u2014 unreachable`;
+            return line;
+        }));
+    } catch (error) {
+        box.textContent = `Clean IP health check failed: ${error.message}`;
     } finally {
         stopWaiting(icons);
     }

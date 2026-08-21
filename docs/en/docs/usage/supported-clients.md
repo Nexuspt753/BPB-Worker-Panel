@@ -6,6 +6,9 @@ Here you can find minimum requirements for proper connection using BPB Panel and
 
 There are some other clients which perform very well and listed in some subscriptions, however they are not listed here due to lack of continuous development or incompatibility with standard cores' configuration formats.
 
+!!! note "Why there is no Surge, Loon or Quantumult X row"
+    These clients only accept subscription bodies in their own INI-style formats (Surge/Loon `Name = vless, ...` lines, Quantumult X `server_remote` sections), and Quantumult X has no VLESS support at all. BPB serves standard URI lists, Xray/sing-box JSON, or Clash YAML — so a one-tap link would import garbage, and the honest option is to leave them out.
+
 ## One-click subscription import
 
 The subscription pages offer a **one-click add** button for each client. The panel detects your device's operating system and, when the client exists on it, hands the subscription to the app in a single tap — either with a deep link or (for the WireGuard family) a config archive download (unpack it, then open a .conf file in the app).
@@ -20,6 +23,9 @@ On an operating system a client does not ship on, the button copies the subscrip
 | v2rayN-PRO | — | — | copy | copy | copy |
 | Streisand | — | ✅ deep link | — | — | — |
 | Shadowrocket | — | ✅ deep link | — | — | ✅ deep link |
+| V2Box | ✅ deep link | ✅ deep link | — | — | — |
+| Happ | ✅ deep link | ✅ deep link | — | — | — |
+| FoXray | — | ✅ deep link | — | — | ✅ deep link |
 | PassWall | — | — | — | — | — |
 | Hiddify | ✅ deep link | ✅ deep link | ✅ deep link | ✅ deep link | ✅ deep link |
 | sing-box | ✅ deep link | ✅ deep link | — | — | ✅ deep link |
@@ -37,6 +43,7 @@ A few details are not visible in the table:
 - **`v2rayN(G)`** is a combined row: on Android it resolves to **v2rayNG** (and its link fires `v2rayng://`), on desktop it resolves to **v2rayN** (copy). The notification names the resolved app.
 - On the **raw** subscription rows the body is a base64 URI list, which only some importers parse. A client whose importer reads structured profiles only (Streisand, for example) falls back to **copy** there; the deep links above apply to the normal / fragment / warp / warp-pro rows.
 - **`PassWall`** is a router add-on for OpenWrt, not a client app — its button always copies the link and says it is not available on this device.
+- **`V2Box`**, **`Happ`** and **`FoXray`** appear on the **raw** rows: their importers read base64 URI lists (FoXray also reads structured profiles). After V2Box or Happ imports, open the app's subscription menu and refresh if the configs do not appear right away — the same applies to v2rayNG and MahsaNG.
 - **`Hiddify`** registers its Windows/macOS/Linux protocol handlers at first launch, so on a fresh desktop install you may need to open Hiddify once before the button can hand the subscription over.
 
 Some clients register the same URL scheme as others (`clashmeta`, `v2rayng` and `sing-box` are also claimed by Hiddify, for example). When several such apps are installed, the operating system may open another one — that app can still import the same subscription, and the plain link is copied to your clipboard first.

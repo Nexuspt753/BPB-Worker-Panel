@@ -317,7 +317,14 @@
                             </label>
                             <div>
                                 <textarea id="cleanIPs" name="cleanIPs" rows="1"></textarea>
+                                <div class="clean-ip-actions">
+                                    <button type="button" id="cleanIPsTestButton" class="button" onclick="testCleanIPs(event)">
+                                        <span class="material-symbols-rounded">monitor_heart</span>
+                                        Test Health
+                                    </button>
+                                </div>
                                 <small class="field-help">One per line · optional custom name after #, e.g. 104.16.1.1#Cloudflare-DE</small>
+                                <div id="clean-ip-health" class="clean-ip-health" role="status" aria-live="polite" hidden></div>
                             </div>
                         </div>
                         <div class="form-control">

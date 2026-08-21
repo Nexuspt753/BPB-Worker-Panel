@@ -59,7 +59,13 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 globalThis.window = win;
 globalThis.dlUrl = (u) => { calls.dlUrl = u; };
-globalThis.notify = (_l, _t, body) => { calls.notify = body; };
+// copyToClipboard's success toast lands on a microtask AFTER the import
+// toast, so assertions must be able to see every notification, not just
+// whichever one fired last.
+globalThis.notify = (_l, _t, body) => {
+    (calls.notifies ??= []).push(body);
+    calls.notify = body;
+};
 globalThis.document = {
     createElement: () => ({
         href: '', style: {}, click() { calls.schemeFired = this.href; }, remove() {}
@@ -89,7 +95,7 @@ const ROWS = [
     ['normal', 'clash', ['Clash Meta', 'Clash Verge', 'FlClash', 'Stash']],
     ['fragment', 'xray', ['v2rayN(G)', 'MahsaNG', 'Streisand']],
     ['fragment', 'sing-box', ['sing-box', 'husi']],
-    ['raw', 'xray', ['v2rayN(G)', 'MahsaNG', 'Shadowrocket', 'Streisand', 'PassWall']],
+    ['raw', 'xray', ['v2rayN(G)', 'MahsaNG', 'Shadowrocket', 'Streisand', 'PassWall', 'V2Box', 'Happ', 'FoXray']],
     ['raw', 'sing-box', ['husi', 'NekoBox', 'Hiddify', 'Karing']],
     ['warp', 'xray', ['v2rayN(G)', 'Streisand']],
     ['warp', 'sing-box', ['sing-box', 'husi']],
@@ -238,6 +244,50 @@ check(calls.schemeFired?.startsWith('sn://subscription?url='),
     check(q.get('url')?.startsWith('http'),
         `NekoBox url param must survive the name param (got ${q.get('url')})`);
 }
+
+// New clients added to the raw xray row.
+api.setOS('ios');
+calls.schemeFired = undefined;
+await api.oneClickAdd('V2Box', 'raw', 'xray', 'Test');
+check(calls.schemeFired?.startsWith('v2box://install-sub?url='),
+    `V2Box on iOS must fire v2box:// (got ${calls.schemeFired})`);
+
+api.setOS('android');
+calls.schemeFired = undefined;
+await api.oneClickAdd('Happ', 'raw', 'xray', 'Test');
+check(calls.schemeFired?.startsWith('happ://add/'),
+    `Happ on Android must fire happ://add/ (got ${calls.schemeFired})`);
+// Happ's payload must be percent-encoded so the inner URL's & and # survive.
+{
+    const fired = calls.schemeFired ?? '';
+    const payload = fired.slice('happ://add/'.length);
+    check(/^https%3A%2F%2F/.test(payload),
+        `Happ payload must be encoded (got ${payload.slice(0, 40)})`);
+}
+
+api.setOS('ios');
+calls.schemeFired = undefined;
+await api.oneClickAdd('FoXray', 'raw', 'xray', 'Test');
+check(calls.schemeFired?.startsWith('foxray://yiguo.dev/sub/add/?url='),
+    `FoXray on iOS must fire foxray:// (got ${calls.schemeFired})`);
+{
+    const q = new URL(calls.schemeFired.replace('foxray://yiguo.dev/', 'https://')).searchParams;
+    const decoded = atob(q.get('url') ?? '');
+    check(decoded.startsWith('https://'),
+        `FoXray url param must be base64 of the sub URL (got ${decoded.slice(0, 40)})`);
+}
+
+// v2rayNG-family toasts must carry the update-subscription hint (upstream
+// 2dust/v2rayNG#4141: the app registers the sub but does not fetch it).
+api.setOS('android');
+calls.notifies = undefined;
+await api.oneClickAdd('v2rayN(G)', 'normal', 'xray', 'Test');
+check((calls.notifies ?? []).some(body => body.some(line => String(line).includes('Update subscription'))),
+    'v2rayNG import toast must mention "Update subscription"');
+calls.notifies = undefined;
+await api.oneClickAdd('Streisand', 'raw', 'xray', 'Test');
+check(!(calls.notifies ?? []).some(body => body.some(line => String(line).includes('Update subscription'))),
+    'Non-v2rayNG clients must not show the v2rayNG hint');
 
 // Report the resulting matrix so behaviour changes are visible in review.
 const byClient = {};

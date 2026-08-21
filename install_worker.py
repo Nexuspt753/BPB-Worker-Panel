@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """Install BPB-Worker-Panel on a Cloudflare Worker.
 
-Standard-library only (no pip dependencies). The flow:
+Standard-library only (no pip dependencies). The flows:
 
-  1. Prints a two-click Cloudflare link with the required permissions
-     pre-filled; you just open it, press "Create Token", and paste the key.
-  2. Detects your account, creates a KV namespace if needed.
-  3. Generates/collects panel settings, injects EMBEDED_SETTINGS into a fresh
-     dist/worker.js bundle, and uploads it as a Worker module.
-  4. Enables the workers.dev route, seeds the panel password, and probes the
-     health endpoint.
+  install        1. Prints a two-click Cloudflare link with the required
+                 permissions pre-filled; you just open it, press "Create
+                 Token", and paste the key.
+                 2. Detects your account, creates a KV namespace if needed.
+                 3. Generates/collects panel settings, injects
+                 EMBEDED_SETTINGS into a fresh dist/worker.js bundle, and
+                 uploads it as a Worker module.
+                 4. Enables the workers.dev route, seeds the panel password,
+                 and probes the health endpoint.
+
+  --update       Redeploys an existing worker with a fresh bundle while
+                 keeping its current settings and KV binding intact.
+
+  --export-pages Writes a dist/_worker.js ready for Cloudflare Pages
+                 advanced-mode upload (dashboard drag-and-drop or
+                 `npx wrangler pages deploy dist`).
 
 Secrets hygiene: credentials are only ever read from hidden prompts or
 environment variables, are masked in all output, and are never written to
@@ -18,6 +27,8 @@ disk. Resource names stay plain ("bpb-panel", "bpb-kv") by design.
 Usage:
     python install_worker.py                 # interactive install
     python install_worker.py --build         # run `npm run build` first
+    python install_worker.py --update        # refresh an installed worker
+    python install_worker.py --export-pages  # produce a Pages _worker.js
     python install_worker.py --reveal        # print the full panel URL
     python install_worker.py --auth global   # Global API Key instead of token
 """
@@ -27,6 +38,7 @@ import datetime
 import getpass
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -126,15 +138,37 @@ class ApiClient:
             raise ApiError(f"{method} {path} failed: {messages or payload[:300]}")
         return data.get("result")
 
-    def upload_worker(self, account_id, script_name, code, kv_namespace_id):
-        """Multipart PUT of the worker module + metadata bindings."""
+    def raw_request(self, method, path):
+        """Fetch a non-envelope payload (e.g. deployed worker source)."""
+        url = f"{API_BASE}{path}"
+        req = urllib.request.Request(url, method=method, headers=self._headers())
+        try:
+            with self.opener.open(req, timeout=60) as res:
+                return res.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as err:
+            raise ApiError(f"HTTP {err.code} on {method} {path}") from err
+        except urllib.error.URLError as err:
+            raise ApiError(f"network error on {method} {path}: {err.reason}") from None
+
+    def upload_worker(self, account_id, script_name, code, kv_namespace_id=None, preserve_bindings=False):
+        """Multipart PUT of the worker module + metadata bindings.
+
+        Fresh installs pass kv_namespace_id so the binding is created;
+        updates pass preserve_bindings=True to keep whatever is bound today
+        (mirroring the wizard's own redeploy path).
+        """
         boundary = f"----bpb{secrets.token_hex(16)}"
         metadata = {
             "main_module": "worker.js",
-            "bindings": [{"type": "kv_namespace", "name": KV_BINDING_NAME, "namespace_id": kv_namespace_id}],
             "compatibility_date": datetime.date.today().isoformat(),
             "compatibility_flags": ["nodejs_compat"],
         }
+        if preserve_bindings:
+            metadata["keep_bindings"] = ["kv_namespace"]
+        else:
+            metadata["bindings"] = [
+                {"type": "kv_namespace", "name": KV_BINDING_NAME, "namespace_id": kv_namespace_id}
+            ]
         parts = []
 
         def part(name, filename, content_type, content):
@@ -298,6 +332,99 @@ def load_bundle(run_build):
     return code
 
 
+EMBEDED_SETTINGS_RE = re.compile(r"const EMBEDED_SETTINGS = (\{.*?\});\n", re.DOTALL)
+
+
+def fetch_deployed_settings(client, account_id, script_name):
+    """Pull the currently deployed script and extract its settings JSON."""
+    path = f"/accounts/{account_id}/workers/scripts/{script_name}"
+    try:
+        text = client.raw_request("GET", path)
+    except ApiError as error:
+        raise ApiError(f"could not fetch the deployed worker ({error}). "
+                       "If it was not installed by this tool, run a full install instead.") from None
+    match = EMBEDED_SETTINGS_RE.search(text)
+    if not match:
+        raise ApiError("deployed worker has no parseable EMBEDED_SETTINGS block; "
+                       "run a full install instead of --update.")
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError as err:
+        raise ApiError(f"deployed EMBEDED_SETTINGS is not valid JSON: {err}") from None
+
+
+def run_update(args, client):
+    """Redeploy an existing worker with a fresh bundle, keeping settings."""
+    account_id = pick_account(client)
+    script_name = prompt_default("Worker name", args.script_name, "BPB_SCRIPT_NAME")
+
+    embedded = fetch_deployed_settings(client, account_id, script_name)
+    print(f"Loaded existing settings (secure path {mask(embedded.get('securePath', ''))}, "
+          f"login {embedded.get('accEmail', '?')}).")
+
+    code = load_bundle(args.build)
+    script = f"const EMBEDED_SETTINGS = {json.dumps(embedded)};\n" + code
+
+    print(f"Uploading updated worker '{script_name}' ({len(script)} bytes)...")
+    client.upload_worker(account_id, script_name, script, preserve_bindings=True)
+    print("Update succeeded; the KV binding and all settings were preserved.")
+
+    main_domain = embedded.get("mainDomain") or ""
+    secure_path = embedded.get("securePath") or ""
+    if main_domain and secure_path and not args.skip_probe and main_domain.endswith("workers.dev"):
+        host = main_domain
+        print(f"\nProbing https://{host} ...")
+        status = probe_panel(host, secure_path, args.proxy)
+        print(f"  GET /{mask(secure_path)}/panel -> HTTP {status}")
+        if status == 302:
+            print("Update verified: the panel is up and redirecting to login.")
+
+
+def run_export_pages(args):
+    """Write dist/_worker.js for Cloudflare Pages advanced-mode deployment."""
+    code = load_bundle(args.build)
+    login_email = prompt_default("Panel login email", os.environ.get("BPB_LOGIN_EMAIL", ""), "BPB_LOGIN_EMAIL")
+    if not login_email:
+        sys.exit("A panel login email is required.")
+    main_domain = prompt_default(
+        "Main domain (your Pages host, e.g. panel.example.com)", "", "BPB_MAIN_DOMAIN"
+    )
+    if not main_domain:
+        sys.exit("A main domain is required.")
+
+    embedded = {
+        "accID": "",
+        "accEmail": login_email,
+        "apiToken": os.environ.get("CF_API_TOKEN", ""),
+        "vlUUID": prompt_default("VLESS UUID", str(uuid.uuid4()), "BPB_VL_UUID"),
+        "trPass": prompt_default("Trojan password", secrets.token_urlsafe(15), "BPB_TR_PASS"),
+        "securePath": prompt_default(
+            "Secret panel path",
+            secrets.token_urlsafe(9).replace("-", "x").replace("_", "y"),
+            "BPB_SECURE_PATH",
+        ),
+        "proxyIpMode": "off",
+        "proxyIPs": ["bpb.yousef.isegaro.com"],
+        "prefixes": [],
+        "fallback": "",
+        "dohUrl": "https://cloudflare-dns.com/dns-query",
+        "mainDomain": main_domain,
+        "deployType": "pages",
+    }
+
+    pages_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist", "_worker.js")
+    with open(pages_path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(f"const EMBEDED_SETTINGS = {json.dumps(embedded)};\n" + code)
+
+    print(f"\nWrote {pages_path}. Deploy it to Pages:")
+    print("  1. Create a Pages project in the dashboard (or keep an existing one).")
+    print(f"     In Settings -> Bindings add a KV namespace bound as '{KV_BINDING_NAME}'.")
+    print(f"  2. Run: npx wrangler pages deploy dist --project-name=<project>")
+    print("     (or upload the folder via the dashboard's Direct Upload).")
+    print(f"  Panel will live at https://{main_domain}/<secret-path>/panel")
+    print("Note: _worker.js embeds your settings - do not commit or share it.")
+
+
 def probe_panel(host, secure_path, proxy):
     url = f"https://{host}/{secure_path}/panel"
     handlers = [NoRedirect()]
@@ -323,6 +450,10 @@ def main():
                         help="'token' (default) uses an API token created via the two-click link; "
                              "'global' uses the Global API Key with your account email.")
     parser.add_argument("--build", action="store_true", help="run `npm run build` before uploading")
+    parser.add_argument("--update", action="store_true",
+                        help="redeploy an existing worker with a fresh bundle, keeping its settings")
+    parser.add_argument("--export-pages", action="store_true", dest="export_pages",
+                        help="write dist/_worker.js for Cloudflare Pages advanced-mode upload")
     parser.add_argument("--script-name", default=os.environ.get("BPB_SCRIPT_NAME", DEFAULT_SCRIPT_NAME),
                         help=f"Worker name (default: {DEFAULT_SCRIPT_NAME})")
     parser.add_argument("--proxy", default=os.environ.get("BPB_PROXY"),
@@ -332,11 +463,20 @@ def main():
     parser.add_argument("--skip-probe", action="store_true", help="skip the final health check")
     args = parser.parse_args()
 
+    if args.update and args.export_pages:
+        sys.exit("--update and --export-pages are mutually exclusive.")
+
     print("=" * 62)
     print("BPB-Worker-Panel installer for Cloudflare Workers")
     print("=" * 62)
 
-    if args.auth == "token":
+    if args.export_pages:
+        if not (args.build or os.path.isfile(os.path.join("dist", "worker.js"))):
+            sys.exit("No dist/worker.js found; pass --build to create one first.")
+        run_export_pages(args)
+        return
+
+    if args.auth == "token" and not args.update:
         url = build_template_url()
         print("\nStep 1 - create an API token with the exact permissions needed:")
         print(f"  {url}")
@@ -356,6 +496,10 @@ def main():
         print(f"Token active: {verify.get('status', 'unknown')}")
     else:
         print(f"Authenticated as {client.request('GET', '/user').get('email')}")
+
+    if args.update:
+        run_update(args, client)
+        return
 
     account_id = pick_account(client)
 

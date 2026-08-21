@@ -1,5 +1,8 @@
 import { HttpStatus, respond, safeError } from '@common';
-import { clients, getGlobals, subscriptions } from '@settings';
+import { clients, getGlobals, getKvSettings, subscriptions } from '@settings';
+import { updateDataset } from '@kv';
+import { cleanIpHost, splitIpAndName, normalizeAddress } from '@cores/naming';
+import { isDomain, isIPv4, isIPv6 } from '@cores/utils';
 import { getCfWorkerUsage } from './usage';
 import { authenticate } from '@auth';
 import { TelegramBot } from '#types/settings';
@@ -60,6 +63,9 @@ export async function setTelegramBot(path: string, token: string) {
                     { command: 'config', description: '🔗 Get configs' },
                     { command: 'clients', description: '📱 Get supported clients' },
                     { command: 'usage', description: '📊 Monitor usage' },
+                    { command: 'listips', description: '🧹 List Clean IPs' },
+                    { command: 'addip', description: '➕ Add a Clean IP (ip#Name)' },
+                    { command: 'delip', description: '➖ Remove a Clean IP' },
                 ]
             })
         });
@@ -456,6 +462,13 @@ export async function handleTelegramWebhook(request: Request, env: Env, ctx: Exe
         const chatId = update.message.chat.id;
         const text = update.message.text || '';
 
+        // Clean IP management commands carry arguments, so they are matched
+        // by prefix before the exact-match menu switch below.
+        if (await handleCleanIpCommand(text, botToken, chatId, env)) {
+            ctx.waitUntil(checkCfUsageWarning(botToken, chatId).catch(error => console.error('[telegram]', error)));
+            return new Response(null, { status: 200 });
+        }
+
         switch (text) {
             case '/usage':
                 const result = await getCfWorkerUsage();
@@ -515,5 +528,94 @@ async function checkCfUsageWarning(botToken: string, chatId: number): Promise<vo
             parse_mode: 'HTML',
             reply_markup: usageKeyboard()
         });
+    }
+}
+
+// The Clean IP entries accept an optional user label after `#` (see
+// splitIpAndName); the bot commands manage exactly those entries.
+function isValidIpHost(host: string): boolean {
+    return isIPv4(host) || isIPv6(host) || isDomain(host);
+}
+
+function escapeHtml(value: string): string {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Handle /addip <ip[:port][#Name]>, /delip <host> and /listips.
+ * Returns false when the message is not one of these commands so the caller
+ * can fall through to the menu switch. Settings are already loaded by the
+ * time the webhook runs (handleTelegram calls setSettings first).
+ */
+export async function handleCleanIpCommand(text: string, botToken: string, chatId: number, env: Env): Promise<boolean> {
+    const trimmed = text.trim();
+    const isAdd = /^\/addip\b/.test(trimmed);
+    const isDelete = /^\/delip\b/.test(trimmed);
+    if (!isAdd && !isDelete && trimmed !== '/listips') return false;
+
+    const reply = (html: string) => tgFetch(botToken, 'sendMessage', {
+        chat_id: chatId,
+        text: html,
+        parse_mode: 'HTML'
+    });
+
+    const settings = getKvSettings();
+
+    try {
+        if (trimmed === '/listips') {
+            if (!settings.cleanIPs.length) {
+                await reply('🧹 <b>Clean IPs</b><br><br>No Clean IPs configured.');
+                return true;
+            }
+            const lines = settings.cleanIPs.map(entry => {
+                const { host, name } = splitIpAndName(entry);
+                return `• <code>${escapeHtml(host)}</code>${name ? ` — ${escapeHtml(name)}` : ''}`;
+            });
+            await reply(`🧹 <b>Clean IPs</b> (${settings.cleanIPs.length})<br><br>${lines.join('<br>')}`);
+            return true;
+        }
+
+        if (isAdd) {
+            const entry = trimmed.replace(/^\/addip\s*/u, '');
+            const { host, name } = splitIpAndName(entry);
+            if (!host || !isValidIpHost(host)) {
+                await reply('⚠️ <b>Usage:</b> <code>/addip 143.112.242.123#Fast-Direct</code><br>The host must be a valid IPv4, IPv6 or domain.');
+                return true;
+            }
+
+            if (settings.cleanIPs.some(candidate => normalizeAddress(cleanIpHost(candidate)) === normalizeAddress(host))) {
+                await reply(`ℹ️ <code>${escapeHtml(host)}</code> is already configured. Send /listips to see it.`);
+                return true;
+            }
+
+            // Keep the user's label; a bare host stays a legacy entry.
+            settings.cleanIPs.push(name ? `${host}#${name}` : host);
+            await updateDataset(env);
+            await reply(`✅ Added Clean IP <code>${escapeHtml(host)}</code>${name ? ` as <b>${escapeHtml(name)}</b>` : ''}.<br>Update your subscription to pick up the new configs.`);
+            return true;
+        }
+
+        // /delip
+        const target = trimmed.replace(/^\/delip\s*/u, '');
+        const { host } = splitIpAndName(target);
+        if (!host || !isValidIpHost(host)) {
+            await reply('⚠️ <b>Usage:</b> <code>/delip 143.112.242.123</code>');
+            return true;
+        }
+
+        const before = settings.cleanIPs.length;
+        settings.cleanIPs = settings.cleanIPs.filter(candidate => normalizeAddress(cleanIpHost(candidate)) !== normalizeAddress(host));
+        if (settings.cleanIPs.length === before) {
+            await reply(`ℹ️ No Clean IP matching <code>${escapeHtml(host)}</code> was found.`);
+            return true;
+        }
+
+        await updateDataset(env);
+        await reply(`🗑️ Removed Clean IP <code>${escapeHtml(host)}</code>.<br>Update your subscription to drop its configs.`);
+        return true;
+    } catch (error) {
+        console.error('[telegram] clean-ip command failed:', error);
+        await reply('❌ Could not update Clean IPs. Check the Worker logs and try again.');
+        return true;
     }
 }

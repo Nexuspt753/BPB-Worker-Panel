@@ -135,7 +135,7 @@ export const subscriptions: Subscription = {
     'raw': {
         label: 'Raw',
         categories: [
-            { core: 'xray', clients: [`${_V2_}N(G)`, 'MahsaNG', 'Shadowrocket', 'Streisand', 'PassWall'] },
+            { core: 'xray', clients: [`${_V2_}N(G)`, 'MahsaNG', 'Shadowrocket', 'Streisand', 'PassWall', 'V2Box', 'Happ', 'FoXray'] },
             { core: 'sing-box', clients: ['husi', 'NekoBox', 'Hiddify', 'Karing'] },
         ]
     },
@@ -268,6 +268,41 @@ export const clientLinks: Record<string, ClientLinkStrategy> = {
     // from a phone or desktop app, so there is never a scheme to fire.
     'PassWall': { platforms: [] },
 
+    // iOS/iPadOS (+ Android) v2ray-family client. Its handler takes the
+    // subscription URL plus an explicit name; without name= it titles the
+    // group from a generated placeholder. Its importer reads a base64
+    // URI list like the v2rayNG family.
+    'V2Box': {
+        platforms: ['ios', 'android'],
+        scheme: 'v2box://install-sub?url={enc}&name={name}',
+        uriList: true
+    },
+    // Android/iOS Xray client (VLESS/Reality). happ://add/ carries the
+    // subscription URL as its payload; percent-encoding keeps the & and
+    // # of the inner URL intact. Reads base64 URI-list feeds.
+    'Happ': {
+        platforms: ['android', 'ios'],
+        scheme: 'happ://add/{enc}',
+        uriList: true
+    },
+    // iOS/iPadOS/macOS Xray-core GUI. Its importer accepts VMess/VLESS
+    // share-protocol lists, Xray JSON and Clash YAML, and registers the
+    // foxray:// scheme with the vendor host path; url is base64 (the raw
+    // form breaks on the query string) and the title comes from fragment.
+    'FoXray': {
+        platforms: ['ios', 'macos'],
+        scheme: 'foxray://yiguo.dev/sub/add/?url={b64}',
+        uriList: true,
+        profile: true
+    },
+
+    // Surge, Loon and Quantumult X are deliberately NOT listed: their
+    // remote-subscription bodies use their own INI-style formats (Surge/
+    // Loon "Name = vless, ..." lines, QX server_remote sections), none of
+    // which match any endpoint BPB serves - and QX has no VLESS support
+    // at all. A one-tap link here would import garbage, so these stay out
+    // instead of pretending to be compatible.
+
     // Multi-platform sing-box GUI. Registers hiddify/v2ray/v2rayn/v2rayng/
     // clash/clashmeta/sing-box on Android and macOS, and writes the same
     // handlers into the Windows registry and Linux desktop mime types at
@@ -387,6 +422,9 @@ export const clients: Client[] = [
     { name: 'FlClash', minVer: '0.8.94', source: 'Github', b64Url: 'aHR0cHM6Ly9naXRodWIuY29tL2NoZW4wODIwOS9GbENsYXNoL3JlbGVhc2VzL2xhdGVzdA==' },
     { name: 'Stash', minVer: '3.4.1', source: 'App Store', b64Url: 'aHR0cHM6Ly9hcHBzLmFwcGxlLmNvbS91cy9hcHAvc3Rhc2gtcnVsZS1iYXNlZC1wcm94eS9pZDE1OTYwNjMzNDk=' },
     { name: 'Amnezia', minVer: '4.8.21.0', source: 'Github', b64Url: 'aHR0cHM6Ly9naXRodWIuY29tL2FtbmV6aWEtdnBuL2FtbmV6aWEtY2xpZW50L3JlbGVhc2VzL2xhdGVzdA==' },
+    { name: 'V2Box', minVer: 'Latest', source: 'App Store', b64Url: 'aHR0cHM6Ly9hcHBzLmFwcGxlLmNvbS91cy9hcHAvdjJib3gtdjJyYXktY2xpZW50L2lkNjQ0NjgxNDY5MA==' },
+    { name: 'Happ', minVer: 'Latest', source: 'Google Play', b64Url: 'aHR0cHM6Ly9wbGF5Lmdvb2dsZS5jb20vc3RvcmUvYXBwcy9kZXRhaWxzP2lkPWNvbS5oYXBwcHJveHk=' },
+    { name: 'FoXray', minVer: 'Latest', source: 'App Store', b64Url: 'aHR0cHM6Ly9hcHBzLmFwcGxlLmNvbS91cy9hcHAvZm94cmF5LXByZW1pdW0vaWQ2NDQ4ODk4Mzk2' },
     { name: 'Wireguard', minVer: 'Stable', source: 'Official Website', b64Url: 'aHR0cHM6Ly93d3cud2lyZWd1YXJkLmNvbS9pbnN0YWxsLw==' },
     { name: 'WG Tunnel', minVer: '5.1.0', source: 'Github', b64Url: 'aHR0cHM6Ly9naXRodWIuY29tL3dndHVubmVsL2FuZHJvaWQvcmVsZWFzZXMvbGF0ZXN0' },
 ];

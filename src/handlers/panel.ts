@@ -7,11 +7,12 @@ import { resetPassword, logout, authenticate } from '@auth';
 import { decompressGzipBase64, respond, HttpStatus, safeError } from '@common';
 import { getDataset, updateDataset } from '@kv';
 import { buildScript, updateMainSettings } from '@main';
-import { getGlobals, getMainSettings, subscriptions, clients, clientLinks } from '@settings';
+import { getSettings, getGlobals, getMainSettings, subscriptions, clients, clientLinks } from '@settings';
 import { validateSettings } from '@validators';
 import { fallback } from './utils';
 import { setTelegramBot } from '@api/telegram';
-import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS } from '@cores/naming';
+import { buildNamePreview, MAX_NAME_TEMPLATE_LENGTH, MIN_NAME_MAX_LENGTH, NAME_TEMPLATE_TOKENS, splitIpAndName } from '@cores/naming';
+import { probeAddress } from '@cores/latency';
 import { testChainProxy } from '@cores/chain-test';
 
 export async function handlePanel(request: Request, env: Env): Promise<Response> {
@@ -31,6 +32,9 @@ export async function handlePanel(request: Request, env: Env): Promise<Response>
 
         case 'panel/test-chain-proxy':
             return testChainProxyEndpoint(request, env);
+
+        case 'panel/clean-ip-health':
+            return cleanIPHealth(request, env);
 
         case 'panel/regenerate-name-snapshots':
             return regenerateNameSnapshots(request, env);
@@ -217,6 +221,44 @@ async function testChainProxyEndpoint(request: Request, env: Env): Promise<Respo
         return respond(true, HttpStatus.OK, '', result);
     } catch (error) {
         return respond(false, HttpStatus.BAD_REQUEST, safeError(error));
+    }
+}
+
+// Probe every configured Clean IP through the Worker's socket API and report
+// which entries still relay to Cloudflare. The panel renders this as a live
+// health list under the Clean IPs textarea, so dead entries are obvious
+// before they end up in a subscription.
+async function cleanIPHealth(request: Request, env: Env): Promise<Response> {
+    if (request.method !== 'POST') {
+        return respond(false, HttpStatus.METHOD_NOT_ALLOWED, 'Method not allowed.');
+    }
+
+    const auth = await authenticate(request, env);
+    if (!auth) {
+        return respond(false, HttpStatus.UNAUTHORIZED, 'Unauthorized or expired session.');
+    }
+
+    try {
+        const { cleanIPs } = getSettings();
+        const entries = cleanIPs
+            .map(splitIpAndName)
+            .filter(entry => entry.host);
+
+        // Bounded concurrency keeps a long dead list from exhausting the
+        // isolate; each probe carries its own 5s deadline.
+        const results: Array<{ host: string; name?: string; ok: boolean; ms: number }> = [];
+        for (let i = 0; i < entries.length; i += 4) {
+            const chunk = entries.slice(i, i + 4);
+            const probed = await Promise.all(chunk.map(async ({ host, name }) => {
+                const { healthy, elapsedMs } = await probeAddress(host, 443);
+                return { host, name: name || undefined, ok: healthy, ms: elapsedMs };
+            }));
+            results.push(...probed);
+        }
+
+        return respond(true, HttpStatus.OK, undefined, results);
+    } catch (error) {
+        return respond(false, HttpStatus.INTERNAL_SERVER_ERROR, safeError(error));
     }
 }
 
