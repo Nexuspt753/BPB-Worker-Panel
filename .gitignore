@@ -20,6 +20,7 @@
 !NAT64Prefixes.md
 !docs
 !docs/**
+!install_worker.py
 
 # Local audit report (do not commit or push)
 /config-name-template-audit.md

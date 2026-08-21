@@ -90,6 +90,10 @@ For non-**Normal** subscription, you may want to use clean IPs. The panel includ
 
 To add custom configs alongside default ones, enter clean IPs or domains as shown in the section image and click **Apply**. Updated subscription will import these new configs, which are also added to **Best Ping** and **Best Fragment** configs.
 
+### Custom names
+
+Each entry accepts an optional name after a `#` — for example `143.112.242.123#Fast-Direct`, `104.16.1.1:443#Cloudflare-DE`, or plain `143.112.242.123`. The label replaces the generic type in config remarks (e.g. `💦 1. VLESS - Fast-Direct : 443`) and is available as the `{IPNAME}` token in [Config Name Templates](config-names.md). Entries without a `#` keep the default naming.
+
 ## Protocol Selection
 
 Enable either or both **VLESS** and **Trojan** protocols.

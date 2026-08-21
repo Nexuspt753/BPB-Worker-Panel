@@ -92,17 +92,27 @@ export interface NameTemplateDiagnostic {
 }
 
 /**
- * Split a Clean IP entry of the form `host # Optional Name` into its parts.
- * Pure string helper — kept in this module (which imports nothing but a type)
- * so validators and the latency store can use it without dragging in settings.
+ * Split a Clean IP entry of the form `host[:port] # Optional Name` into its
+ * parts. A trailing port is dropped: configs are generated per selected TLS
+ * port, so keeping it would corrupt dial addresses. Pure string helper — kept
+ * in this module (which imports nothing but a type) so validators and the
+ * latency store can use it without dragging in settings.
  */
 export function splitIpAndName(entry: string): { host: string; name: string } {
     const idx = entry.indexOf('#');
-    if (idx === -1) return { host: entry.trim(), name: '' };
     return {
-        host: entry.slice(0, idx).trim(),
-        name: entry.slice(idx + 1).trim(),
+        host: stripUnambiguousPort((idx === -1 ? entry : entry.slice(0, idx)).trim()),
+        name: idx === -1 ? '' : entry.slice(idx + 1).trim(),
     };
+}
+
+/** Remove a trailing `:port` unless the value is a bare IPv6 literal. */
+function stripUnambiguousPort(value: string): string {
+    if (value.startsWith('[')) {
+        const close = value.indexOf(']');
+        return close > 0 ? value.slice(0, close + 1) : value;
+    }
+    return value.replace(/^([^:]+):\d+$/u, '$1');
 }
 
 export function cleanIpHost(entry: string): string {

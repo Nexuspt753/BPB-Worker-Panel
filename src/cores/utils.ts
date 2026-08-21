@@ -349,22 +349,25 @@ export async function generateRemark(
         ? addressType = 'Clean IP'
         : addressType = isDomain(address) ? 'Domain' : isIPv4(address) ? 'IPv4' : isIPv6(address) ? 'IPv6' : '';
 
+    // Precompute a host->name map from the `#`-suffixed entries in cleanIPs.
+    // A named entry (`104.16.1.1#Cloudflare-DE`) shows its label in place of
+    // the generic type in the classic remark and feeds the {IPNAME} token.
+    const ipNameMap = new Map<string, string>();
+    cleanIPs.forEach(entry => {
+        const { host, name } = splitIpAndName(entry);
+        if (name) ipNameMap.set(normalize(host), name);
+    });
+    const customCleanIpName = ipNameMap.get(normalize(address));
+
     // Keep the classic upstream label as the fallback, while still allowing a
     // configured template to name it consistently with the other addresses.
     const fallback = normalize(address) === normalize(upstreamServer ?? '')
         ? `💦 ${index}. ${chainSign}${protoSign} ${configType}- Upstream Proxy`
-        : `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${addressType} : ${port}`;
+        : `💦 ${index}. ${chainSign}${protoSign} ${configType}- ${customCleanIpName || addressType} : ${port}`;
 
     // Route through the naming engine only when the user set a template;
     // otherwise fall back to the classic remark with zero extra lookups.
     if (nameTemplate && nameTemplate.trim()) {
-        // Precompute a host->name map from the `#`-suffixed entries in cleanIPs.
-        const ipNameMap = new Map<string, string>();
-        cleanIPs.forEach(entry => {
-            const { host, name } = splitIpAndName(entry);
-            if (name) ipNameMap.set(normalize(host), name);
-        });
-
         const compiled = compileNameTemplate(nameTemplate);
         if (!compiled) return fallback;
         const tokens = compiled.tokens;
@@ -421,7 +424,7 @@ export async function generateRemark(
             geoSource,
             latency: latencyRecord?.ms != null ? String(latencyRecord.ms) : undefined,
             latencyAge: formatCacheAge(latencyRecord?.measuredAt),
-            customName: ipNameMap.get(normalize(address)) || undefined,
+            customName: customCleanIpName || undefined,
             group: findAddressGroup(address, nameAddressGroups),
             marker: configType.trim(),
             egressIp,
